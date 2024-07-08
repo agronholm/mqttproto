@@ -14,6 +14,7 @@ from anyio.abc import (
     Listener,
     SocketAttribute,
 )
+from anyio.streams.tls import TLSListener
 from attrs import define, field
 
 from mqttproto import (
@@ -133,7 +134,7 @@ class AsyncMQTTBroker:
         "127.0.0.1",
         1883,
     )
-    ssl_context: SSLContext | None = None  # TODO: use this to serve TLS
+    ssl_context: SSLContext | None = None
     authenticators: Sequence[MQTTAuthenticator] = field(factory=list)
     authorizers: Sequence[MQTTAuthorizer] = field(factory=list)
     _state_machine: MQTTBrokerStateMachine = field(init=False)
@@ -272,6 +273,9 @@ class AsyncMQTTBroker:
         else:
             host, port = self.bind_address  # TODO: this is problematic for IPv6
             listener = await create_tcp_listener(local_host=host, local_port=port)
+
+        if self.ssl_context:
+            listener = TLSListener(listener, self.ssl_context)
 
         logger.info(
             "Broker listening on %s", listener.extra(SocketAttribute.local_address)
