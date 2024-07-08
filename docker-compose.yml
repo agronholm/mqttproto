@@ -1,0 +1,8 @@
+services:
+  emqx:
+    image: ${CI_DEPENDENCY_PROXY_DIRECT_GROUP_IMAGE_PREFIX:-docker.io}/emqx/emqx:5.7
+    ports:
+      - "127.0.0.1:1883:1883"
+      - "127.0.0.1:18083:18083"
+    environment:
+        EMQX_LOADED_PLUGINS: emqx_dashboard

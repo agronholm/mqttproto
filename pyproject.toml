@@ -1,0 +1,125 @@
+[build-system]
+requires = [
+    "setuptools >= 64",
+    "setuptools_scm >= 6.4"
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mqttproto"
+description = "Sans-io MQTT v5 client/broker with an AnyIO based I/O implementation"
+readme = "README.rst"
+authors = [{name = "Alex Grönholm", email = "alex.gronholm@nextday.fi"}]
+license = {text = "MIT"}
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Typing :: Typed",
+    "Framework :: AnyIO",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+requires-python = ">= 3.8"
+dependencies = [
+    "anyio ~= 4.4",
+    "attrs >= 23.2.0",
+    "stamina >= 24.2.0",
+]
+dynamic = [ "version" ]
+
+[project.urls]
+Documentation = "https://mqttproto.readthedocs.io/en/latest/"
+"Source code" = "https://github.com/agronholm/mqttproto"
+"Issue tracker" = "https://github.com/agronholm/mqttproto/issues"
+
+[project.optional-dependencies]
+websockets = [
+    "httpx-ws >= 0.6.0"
+]
+test = [
+    "mqttproto[websockets]",
+    "anyio[trio]",
+    "coverage >= 7",
+    "pytest >= 8.0",
+]
+doc = [
+    "enum_tools[sphinx] >= 0.12.0",
+    "mqttproto[websockets]",
+    "packaging",
+    "sphinx_rtd_theme >= 2.0.0",
+    "sphinx-autodoc-typehints >= 2.1.1",
+    "sphinx-tabs >= 3.3.1",
+]
+
+[tool.setuptools_scm]
+version_scheme = "post-release"
+local_scheme = "dirty-tag"
+
+[tool.ruff.lint]
+extend-select = [
+    "ASYNC",        # flake8-async
+    "B0",           # flake8-bugbear
+    "G",            # flake8-logging-format
+    "I",            # isort
+    "ISC",          # flake8-implicit-str-concat
+    "PGH",          # pygrep-hooks
+    "RUF100",       # unused noqa (yesqa)
+    "T201",         # print
+    "UP",           # pyupgrade
+    "W",            # pycodestyle warnings
+]
+
+[tool.ruff.lint.extend-per-file-ignores]
+"docs/snippets/**.py" = ["T201", "F841"]
+
+[tool.ruff.lint.isort]
+"required-imports" = ["from __future__ import annotations"]
+
+[tool.mypy]
+python_version = "3.8"
+strict = true
+
+[tool.pytest.ini_options]
+addopts = "-rsx --tb=short"
+testpaths = "tests"
+filterwarnings = "always"
+markers = [
+    "network: marks tests as requiring network interfaces",
+]
+
+[tool.coverage.run]
+source = ["mqttproto"]
+
+[tool.coverage.report]
+show_missing = true
+
+[tool.tox]
+legacy_tox_ini = """
+[tox]
+envlist = lint, py38, py39, py310, py311, py312, py313, pypy3
+skip_missing_interpreters = true
+minversion = 4.0
+
+[testenv]
+depends = pre-commit
+package = editable
+commands = pytest {posargs}
+extras = test
+
+[testenv:pre-commit]
+depends =
+package = skip
+deps = pre-commit
+commands = pre-commit run --all-files --show-diff-on-failure
+
+[testenv:docs]
+extras = doc
+commands = sphinx-build -n docs build/sphinx
+"""
