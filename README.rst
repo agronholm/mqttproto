@@ -33,7 +33,7 @@ possible, and this project has certain automatic safeguards to ensure correctnes
 You can find the documentation `here <https://mqttproto.readthedocs.org/>`_.
 
 .. _sans-io: https://sans-io.readthedocs.io/
-.. _MQTT: https://tools.ietf.org/html/rfc5321
+.. _MQTT: https://tools.ietf.org/html/rfc9431
 .. _Trio: https://github.com/python-trio/trio
 .. _asyncio: https://docs.python.org/3/library/asyncio.html
 .. _AnyIO: https://pypi.org/project/anyio/
