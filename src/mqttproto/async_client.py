@@ -6,7 +6,7 @@ from collections.abc import AsyncGenerator, Container, Sequence
 from contextlib import AsyncExitStack, ExitStack, asynccontextmanager
 from ssl import SSLContext, SSLError
 from types import TracebackType
-from typing import Any, Generic, Literal, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar
 
 import stamina
 from anyio import (
@@ -25,8 +25,6 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 from anyio.streams.tls import TLSStream
 from attr.validators import ge, gt, in_, instance_of, le, lt, optional
 from attrs import define, field
-from httpx import HTTPError
-from httpx_ws import AsyncWebSocketSession, WebSocketInvalidTypeReceived
 
 from ._exceptions import (
     MQTTConnectFailed,
@@ -56,6 +54,10 @@ if sys.version_info >= (3, 11):
     from typing import Self
 else:
     from typing_extensions import Self
+
+if TYPE_CHECKING:
+    from httpx import HTTPError
+    from httpx_ws import AsyncWebSocketSession, WebSocketInvalidTypeReceived
 
 logger = logging.getLogger(__name__)
 
@@ -424,13 +426,16 @@ class AsyncMQTTClient:
 
     @stamina.retry(on=HTTPError)
     async def _connect_ws(self) -> ByteStream:
+        from httpx import AsyncClient
         from httpx_ws import aconnect_ws
 
-        scheme = "https" if self.ssl else "wss"
+        scheme = "wss" if self.ssl else "ws"
         uri = f"{scheme}://{self.host_or_path}:{self.port}{self.websocket_path}"
 
         # MQTT-6.0.0-3
-        async with aconnect_ws(uri, subprotocols=["mqtt"], verify=self.ssl) as session:
+        async with AsyncClient(verify=self.ssl) as client, aconnect_ws(
+            uri, client=client, subprotocols=["mqtt"]
+        ) as session:
             return MQTTWebsocketStream(session)
 
     async def _flush_outbound_data(self) -> None:
