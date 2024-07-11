@@ -56,8 +56,7 @@ else:
     from typing_extensions import Self
 
 if TYPE_CHECKING:
-    from httpx import HTTPError
-    from httpx_ws import AsyncWebSocketSession, WebSocketInvalidTypeReceived
+    from httpx_ws import AsyncWebSocketSession
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +81,8 @@ class MQTTWebsocketStream(ByteStream):
         raise NotImplementedError
 
     async def receive(self, max_bytes: int = 65536) -> bytes:
+        from httpx_ws import WebSocketInvalidTypeReceived
+
         try:
             return await self._session.receive_bytes()
         except WebSocketInvalidTypeReceived as exc:
@@ -260,7 +261,7 @@ class AsyncMQTTClient:
 
     _exit_stack: AsyncExitStack = field(init=False)
     _closed: bool = field(init=False, default=False)
-    _protocol: MQTTClientStateMachine = field(init=False)
+    _state_machine: MQTTClientStateMachine = field(init=False)
     _subscriptions: list[AsyncMQTTSubscription] = field(init=False, factory=list)
     _stream: ByteStream = field(init=False)
     _stream_lock: Lock = field(init=False, factory=Lock)
@@ -283,7 +284,7 @@ class AsyncMQTTClient:
             else:
                 self.port = 8883 if self.ssl else 1883
 
-        self._protocol = MQTTClientStateMachine(client_id=self.client_id)
+        self._state_machine = MQTTClientStateMachine(client_id=self.client_id)
 
     async def __aenter__(self) -> Self:
         async with AsyncExitStack() as exit_stack:
@@ -302,7 +303,7 @@ class AsyncMQTTClient:
         self._closed = True
 
         if exc_val is None:
-            self._protocol.disconnect()
+            self._state_machine.disconnect()
             operation = MQTTDisconnectOperation()
             await self._run_operation(operation)
             await self._stream.aclose()
@@ -320,17 +321,19 @@ class AsyncMQTTClient:
         while not self._closed:
             # Establish the transport stream
             if self.websocket_path:
-                stream = await self._connect_ws()
+                cm = self._connect_ws()
             else:
-                stream = await self._connect_mqtt()
+                cm = self._connect_mqtt()
 
             async with AsyncExitStack() as exit_stack:
-                await exit_stack.enter_async_context(stream)
+                stream, ignored_exc_classes = await exit_stack.enter_async_context(cm)
                 self._stream = stream
 
                 # Start handling inbound packets
                 task_group = await exit_stack.enter_async_context(create_task_group())
-                task_group.start_soon(self._read_inbound_packets, stream)
+                task_group.start_soon(
+                    self._read_inbound_packets, stream, ignored_exc_classes
+                )
 
                 # Perform the MQTT handshake (send conn + receive connack)
                 await self._do_handshake()
@@ -341,7 +344,7 @@ class AsyncMQTTClient:
                     task_status_sent = True
 
     async def _do_handshake(self) -> None:
-        self._protocol.connect(
+        self._state_machine.connect(
             username=self.username,
             password=self.password,
             will=self.will,
@@ -357,21 +360,20 @@ class AsyncMQTTClient:
             self.client_id = client_id
 
     async def _read_inbound_packets(
-        self,
-        stream: ByteReceiveStream,
+        self, stream: ByteReceiveStream, exception_classes: tuple[type[Exception]]
     ) -> None:
         # Receives packets from the transport stream and forwards them to interested
         # listeners
         try:
             async for chunk in stream:
                 logger.debug("Received bytes from transport stream: %r", chunk)
-                received_packets = self._protocol.feed_bytes(chunk)
+                received_packets = self._state_machine.feed_bytes(chunk)
                 await self._flush_outbound_data()
 
                 # Send any received publications to subscriptions that want them
                 for packet in received_packets:
                     await self._handle_packet(packet)
-        except ClosedResourceError:
+        except exception_classes:
             pass
 
     async def _handle_packet(self, packet: MQTTPacket) -> None:
@@ -401,46 +403,59 @@ class AsyncMQTTClient:
                 if sub.matches(packet):
                     tg.start_soon(sub.send_stream.send, packet)
 
-    @stamina.retry(on=(OSError, SSLError))
-    async def _connect_mqtt(self) -> ByteStream:
+    @asynccontextmanager
+    async def _connect_mqtt(
+        self,
+    ) -> AsyncGenerator[tuple[ByteStream, tuple[type[Exception]]], None]:
         stream: ByteStream
         assert self.host_or_path
-        if self.transport == "unix":
-            stream = await connect_unix(self.host_or_path)
-        else:
-            assert self.port
-            stream = await connect_tcp(self.host_or_path, self.port)
+        ssl_context = self.ssl if isinstance(self.ssl, SSLContext) else None
+        for attempt in stamina.retry_context(on=(OSError, SSLError)):
+            with attempt:
+                if self.transport == "unix":
+                    stream = await connect_unix(self.host_or_path)
+                else:
+                    assert self.port
+                    stream = await connect_tcp(self.host_or_path, self.port)
 
-        if self.ssl:
-            try:
-                stream = await TLSStream.wrap(
-                    stream,
-                    hostname=self.host_or_path,
-                    ssl_context=self.ssl if isinstance(self.ssl, SSLContext) else None,
-                )
-            except BaseException:
-                await aclose_forcefully(stream)
-                raise
+                if self.ssl:
+                    try:
+                        stream = await TLSStream.wrap(
+                            stream,
+                            hostname=self.host_or_path,
+                            ssl_context=ssl_context,
+                        )
+                    except BaseException:
+                        await aclose_forcefully(stream)
+                        raise
 
-        return stream
+                yield stream, (ClosedResourceError,)
+                return
 
-    @stamina.retry(on=HTTPError)
-    async def _connect_ws(self) -> ByteStream:
+    @asynccontextmanager
+    async def _connect_ws(
+        self,
+    ) -> AsyncGenerator[tuple[ByteStream, tuple[type[Exception]]], None]:
         from httpx import AsyncClient
-        from httpx_ws import aconnect_ws
+        from httpx_ws import WebSocketNetworkError, aconnect_ws
 
         scheme = "wss" if self.ssl else "ws"
         uri = f"{scheme}://{self.host_or_path}:{self.port}{self.websocket_path}"
 
         # MQTT-6.0.0-3
-        async with AsyncClient(verify=self.ssl) as client, aconnect_ws(
-            uri, client=client, subprotocols=["mqtt"]
-        ) as session:
-            return MQTTWebsocketStream(session)
+        async with AsyncExitStack() as exit_stack:
+            client = await exit_stack.enter_async_context(AsyncClient(verify=self.ssl))
+            for attempt in stamina.retry_context(on=(OSError, SSLError)):
+                with attempt:
+                    session = await exit_stack.enter_async_context(
+                        aconnect_ws(uri, client=client, subprotocols=["mqtt"])
+                    )
+                    yield MQTTWebsocketStream(session), (WebSocketNetworkError,)
+                    return
 
     async def _flush_outbound_data(self) -> None:
         async with self._stream_lock:
-            if data := self._protocol.get_outbound_data():
+            if data := self._state_machine.get_outbound_data():
                 await self._stream.send(data)
                 logger.debug("Sent bytes to transport stream: %r", data)
 
@@ -484,7 +499,7 @@ class AsyncMQTTClient:
             before the subscription happened
 
         """
-        packet_id = self._protocol.publish(topic, payload, qos=qos, retain=retain)
+        packet_id = self._state_machine.publish(topic, payload, qos=qos, retain=retain)
         if qos is QoS.EXACTLY_ONCE:
             assert packet_id is not None
             await self._run_operation(MQTTQoS2PublishOperation(packet_id))
@@ -531,7 +546,7 @@ class AsyncMQTTClient:
         async def unsubscribe() -> None:
             # Send an unsubscribe request if any of these patterns are not used by
             # another subscription in this client
-            if unsubscribe_packet_id := self._protocol.unsubscribe(patterns):
+            if unsubscribe_packet_id := self._state_machine.unsubscribe(patterns):
                 unsubscribe_op = MQTTUnsubscribeOperation(unsubscribe_packet_id)
                 try:
                     await self._run_operation(unsubscribe_op)
@@ -559,7 +574,7 @@ class AsyncMQTTClient:
 
             # Send a subscribe request if any of these patterns hasn't been subscribed
             # to by this client already
-            if subscribe_packet_id := self._protocol.subscribe(subscriptions):
+            if subscribe_packet_id := self._state_machine.subscribe(subscriptions):
                 subscribe_op = MQTTSubscribeOperation(subscribe_packet_id)
                 await self._run_operation(subscribe_op)
 
