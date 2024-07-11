@@ -137,7 +137,9 @@ class AsyncMQTTBroker:
     ssl_context: SSLContext | None = None
     authenticators: Sequence[MQTTAuthenticator] = field(factory=list)
     authorizers: Sequence[MQTTAuthorizer] = field(factory=list)
-    _state_machine: MQTTBrokerStateMachine = field(init=False)
+    _state_machine: MQTTBrokerStateMachine = field(
+        init=False, factory=MQTTBrokerStateMachine
+    )
     _client_sessions: dict[str, AsyncMQTTClientSession] = field(
         init=False, factory=dict
     )
@@ -277,10 +279,11 @@ class AsyncMQTTBroker:
         if self.ssl_context:
             listener = TLSListener(listener, self.ssl_context)
 
-        logger.info(
-            "Broker listening on %s", listener.extra(SocketAttribute.local_address)
-        )
-        await listener.serve(self.serve_client)
+        async with listener:
+            logger.info(
+                "Broker listening on %s", listener.extra(SocketAttribute.local_address)
+            )
+            await listener.serve(self.serve_client)
 
 
 if __name__ == "__main__":
