@@ -364,6 +364,10 @@ class TestMQTTPublishPacket:
         packet = MQTTPublishPacket(
             topic="tö/p1/c",
             payload=payload,
+            retain=True,
+            qos=QoS.EXACTLY_ONCE,
+            duplicate=True,
+            packet_id=65535,
             properties=properties,
             user_properties=user_properties,
         )

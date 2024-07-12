@@ -816,7 +816,7 @@ class MQTTPublishPacket(MQTTPacket, PropertiesMixin):
         ]
     )
 
-    RETAIN_FLAG = 0
+    RETAIN_FLAG = 1
     QOS_MASK = 6
     DUP_FLAG = 8
 
