@@ -30,7 +30,7 @@ possible, and this project has certain automatic safeguards to ensure correctnes
 * Passes Mypy_ in strict mode
 * Documentation built with "fail-on-warning" enabled
 
-You can find the documentation `here <https://mqttproto.readthedocs.org/>`_.
+You can find the documentation `here <https://mqttproto.readthedocs.io/>`_.
 
 .. _sans-io: https://sans-io.readthedocs.io/
 .. _MQTT: https://docs.oasis-open.org/mqtt/mqtt/v5.0/mqtt-v5.0.html
