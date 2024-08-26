@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+
 from mqttproto import MQTTPublishPacket, QoS
 from mqttproto.sync_client import MQTTClient
 
