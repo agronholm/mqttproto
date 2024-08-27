@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+
 from mqttproto._exceptions import (
     InsufficientData,
     InvalidPattern,
