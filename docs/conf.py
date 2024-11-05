@@ -9,6 +9,7 @@ extensions = [
     "sphinx.ext.autodoc",
     "sphinx.ext.intersphinx",
     "sphinx_autodoc_typehints",
+    "sphinx_rtd_theme",
     "sphinx_tabs.tabs",
     "enum_tools.autoenum",
 ]
