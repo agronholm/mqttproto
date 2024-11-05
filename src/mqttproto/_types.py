@@ -6,7 +6,7 @@ from collections.abc import Callable, Sequence
 from enum import Enum, IntEnum, auto
 from functools import partial
 from itertools import zip_longest
-from typing import Any, ClassVar, cast
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 from attrs import define, field
 from attrs.validators import deep_iterable, in_, instance_of
@@ -20,15 +20,16 @@ from ._exceptions import (
     MQTTUnsupportedPropertyType,
 )
 
-if sys.version_info >= (3, 11):
-    from typing import Self
-else:
-    from typing_extensions import Self
+if TYPE_CHECKING:
+    if sys.version_info >= (3, 11):
+        from typing import Self
+    else:
+        from typing_extensions import Self
 
-if sys.version_info >= (3, 10):
-    from typing import TypeAlias
-else:
-    from typing_extensions import TypeAlias
+    if sys.version_info >= (3, 10):
+        from typing import TypeAlias
+    else:
+        from typing_extensions import TypeAlias
 
 PropertyValue: TypeAlias = "str | bytes | int | tuple[str, str]"
 

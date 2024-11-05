@@ -50,13 +50,14 @@ from ._types import (
 )
 from .client_state_machine import MQTTClientStateMachine
 
-if sys.version_info >= (3, 11):
-    from typing import Self
-else:
-    from typing_extensions import Self
-
 if TYPE_CHECKING:
     from httpx_ws import AsyncWebSocketSession
+
+    if sys.version_info >= (3, 11):
+        from typing import Self
+    else:
+        from typing_extensions import Self
+
 
 logger = logging.getLogger(__name__)
 

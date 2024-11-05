@@ -5,7 +5,7 @@ from collections.abc import Generator
 from contextlib import ExitStack, contextmanager
 from ssl import SSLContext
 from types import TracebackType
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from anyio.from_thread import BlockingPortal, BlockingPortalProvider
 from attrs import define
@@ -13,10 +13,11 @@ from attrs import define
 from ._types import MQTTPublishPacket, QoS, RetainHandling, Will
 from .async_client import AsyncMQTTClient, AsyncMQTTSubscription
 
-if sys.version_info >= (3, 11):
-    from typing import Self
-else:
-    from typing_extensions import Self
+if TYPE_CHECKING:
+    if sys.version_info >= (3, 11):
+        from typing import Self
+    else:
+        from typing_extensions import Self
 
 portal_provider = BlockingPortalProvider()
 
