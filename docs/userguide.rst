@@ -17,7 +17,7 @@ If you need websockets connectivity, you will want to include the ``websockets``
 Using the async client
 ----------------------
 
-.. py:currentmodule:: mqttpproto.async_client
+.. py:currentmodule:: mqttproto.async_client
 .. highlight:: python
 
 The asynchronous client needs to be used as an asynchronous context manager to manage
@@ -115,7 +115,7 @@ To publish a message to the broker, call the :meth:`~.AsyncMQTTClient.publish` m
 Using the sync client
 ---------------------
 
-.. py:currentmodule:: mqttpproto.sync_client
+.. py:currentmodule:: mqttproto.sync_client
 
 The synchronous client (:class:`~.MQTTClient`) is a wrapper for the asynchronous client,
 allowing users to not care about the details of the asynchronous implementation.
