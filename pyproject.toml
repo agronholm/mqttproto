@@ -96,30 +96,28 @@ markers = [
 
 [tool.coverage.run]
 source = ["mqttproto"]
+relative_files = true
 
 [tool.coverage.report]
 show_missing = true
 
 [tool.tox]
-legacy_tox_ini = """
-[tox]
-envlist = lint, py38, py39, py310, py311, py312, py313, pypy3
+env_list = ["pre-commit", "py38", "py39", "py310", "py311", "py312", "py313", "pypy3"]
 skip_missing_interpreters = true
-minversion = 4.0
 
-[testenv]
-depends = pre-commit
-package = editable
-commands = pytest {posargs}
-extras = test
+[tool.tox.env_run_base]
+commands = [["pytest", { replace = "posargs", extend = true }]]
+depends = ["pre-commit"]
+extras = ["test"]
+package = "editable"
 
-[testenv:pre-commit]
-depends =
-package = skip
-deps = pre-commit
-commands = pre-commit run --all-files --show-diff-on-failure
+[tool.tox.env.pre-commit]
+commands = [["pre-commit", "run", "--all-files", "--show-diff-on-failure"]]
+depends = []
+allowlist_externals = ["pre-commit"]
+package = "skip"
 
-[testenv:docs]
-extras = doc
-commands = sphinx-build -n docs build/sphinx
-"""
+[tool.tox.env.docs]
+commands = [["sphinx-build", "-W", "docs", "build/sphinx"]]
+depends = []
+extras = ["doc"]
