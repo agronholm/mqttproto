@@ -16,7 +16,7 @@ extensions = [
 templates_path = ["_templates"]
 source_suffix = ".rst"
 master_doc = "index"
-project = "mqttpproto"
+project = "mqttproto"
 author = "Alex Grönholm"
 copyright = "2024, " + author
 
