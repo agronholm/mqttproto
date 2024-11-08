@@ -287,7 +287,7 @@ class AsyncMQTTClient:
         self._state_machine = MQTTClientStateMachine(client_id=self.client_id)
 
     @property
-    def may_retain(self):
+    def may_retain(self) -> bool:
         return self._state_machine.may_retain
 
     async def __aenter__(self) -> Self:
