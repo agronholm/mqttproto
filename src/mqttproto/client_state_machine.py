@@ -168,13 +168,12 @@ class MQTTClientStateMachine(BaseMQTTClientStateMachine):
 
         return packet.packet_id
 
-    def supports_qos(self, qos: QoS) -> bool:
+    @property
+    def maximum_qos(self) -> QoS:
         """
-        Check if the broker supports this QoS level.
-
-        :param qos: The desired QoS value.
+        Returns the maximum QoS level that the broker supports.
         """
-        return qos <= self._maximum_qos
+        return self._maximum_qos
 
     def subscribe(self, subscriptions: Sequence[Subscription]) -> int | None:
         """
