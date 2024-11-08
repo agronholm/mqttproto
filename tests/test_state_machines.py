@@ -87,6 +87,16 @@ def test_duplicate_subscription(connected_client: MQTTClientStateMachine) -> Non
     assert connected_client.unsubscribe(["foo/bar"]) == 2
 
 
+def test_ping_no_answer(connected_client: MQTTClientStateMachine) -> None:
+    connected_client.ping()
+    assert connected_client.pings_pending == 1
+    connected_client.ping()
+    assert connected_client.pings_pending == 2
+    connected_client.ping()
+    assert connected_client.pings_pending == 3
+    # TODO test that a response clears the counter
+
+
 def test_client_publish_qos0(
     client_session_pairs: list[
         tuple[MQTTClientStateMachine, MQTTBrokerClientStateMachine]
