@@ -1116,7 +1116,7 @@ class MQTTPublishCompletePacket(MQTTPacket, PropertiesMixin, ReasonCodeMixin):
 class MQTTSubscribePacket(MQTTPacket, PropertiesMixin):
     """Subscribe request"""
 
-    EXPECTED_RESERVED_BITS: ClassVar[int] = 2
+    expected_reserved_bits: ClassVar[int] = 2
 
     packet_type = ControlPacketType.SUBSCRIBE
     allowed_property_types = frozenset(
