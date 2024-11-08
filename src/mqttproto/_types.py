@@ -1541,7 +1541,14 @@ def decode_packet(
             f"received {packet_type._name_} with reserved bits set in its fixed header"
         )
 
-    leftover_data, packet = packet_cls.decode(data[:remaining_length], flags)
+    try:
+        leftover_data, packet = packet_cls.decode(data[:remaining_length], flags)
+    except InsufficientData:
+        # this is a problem with our code, not a MQTT error
+        raise RuntimeError(
+            f"decoding {packet_type._name_} consumed more data than available"
+        )
+
     if leftover_data:
         raise MQTTDecodeError(
             f"not all data was consumed when decoding a {packet_type._name_} packet"
