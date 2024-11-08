@@ -3,10 +3,10 @@ from __future__ import annotations
 import logging
 import sys
 from collections.abc import AsyncGenerator, Container, Sequence
-from contextlib import AsyncExitStack, ExitStack, asynccontextmanager, nullcontext
+from contextlib import AsyncExitStack, ExitStack, asynccontextmanager
 from ssl import SSLContext, SSLError
 from types import TracebackType
-from typing import TYPE_CHECKING, Any, Generic, Literal, Never, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar
 
 import stamina
 from anyio import (
@@ -54,9 +54,9 @@ from ._types import (
 from .client_state_machine import MQTTClientStateMachine
 
 if sys.version_info >= (3, 11):
-    from typing import Self
+    from typing import Never, Self
 else:
-    from typing_extensions import Self
+    from typing_extensions import Never, Self
 
 if TYPE_CHECKING:
     from httpx_ws import AsyncWebSocketSession
@@ -356,7 +356,7 @@ class AsyncMQTTClient:
                     task_status.started()
                     task_status_sent = True
 
-    async def _send_keepalive(self, *, task_status) -> Never:
+    async def _send_keepalive(self, *, task_status: TaskStatus[CancelScope]) -> Never:
         with CancelScope() as sc:
             self._did_send = Event()
             task_status.started(sc)
@@ -370,8 +370,8 @@ class AsyncMQTTClient:
                     if self._state_machine.pings_pending > 2:
                         raise
                     self._state_machine.ping()
-                else:
-                    self._did_send = Event()
+                    await self._flush_outbound_data()  # sets the event
+                self._did_send = Event()
 
     async def _do_handshake(self) -> None:
         self._state_machine.connect(
