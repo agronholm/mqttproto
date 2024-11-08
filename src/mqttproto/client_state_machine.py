@@ -71,7 +71,8 @@ class MQTTClientStateMachine(BaseMQTTClientStateMachine):
                     str, packet.properties.get(PropertyType.AUTHENTICATION_METHOD)
                 )
                 self._maximum_qos = cast(
-                    QoS, packet.properties.get(PropertyType.MAXIMUM_QOS, QoS.EXACTLY_ONCE)
+                    QoS,
+                    packet.properties.get(PropertyType.MAXIMUM_QOS, QoS.EXACTLY_ONCE),
                 )
 
                 self.reset(session_present=packet.session_present)
