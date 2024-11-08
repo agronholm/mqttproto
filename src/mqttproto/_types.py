@@ -1464,8 +1464,14 @@ class MQTTDisconnectPacket(MQTTPacket, PropertiesMixin, ReasonCodeMixin):
         cls, data: memoryview, flags: int
     ) -> tuple[memoryview, MQTTDisconnectPacket]:
         # Decode the variable header
-        data, reason_code = cls.decode_reason_code(data)
-        data, properties, user_properties = cls.decode_properties(data)
+        reason_code = ReasonCode.SUCCESS
+        properties = {}
+        user_properties = {}
+
+        if data:
+            data, reason_code = cls.decode_reason_code(data)
+            if data:
+                data, properties, user_properties = cls.decode_properties(data)
 
         return data, MQTTDisconnectPacket(
             reason_code=reason_code,
