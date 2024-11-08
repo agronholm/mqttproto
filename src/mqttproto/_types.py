@@ -931,8 +931,8 @@ class MQTTPublishAckPacket(MQTTPacket, PropertiesMixin, ReasonCodeMixin):
     ) -> tuple[memoryview, MQTTPublishAckPacket]:
         # Decode the variable header
         reason_code = ReasonCode.SUCCESS
-        properties = {}
-        user_properties = {}
+        properties: dict[PropertyType, PropertyValue] = {}
+        user_properties: dict[str, str] = {}
 
         data, packet_id = decode_fixed_integer(data, 2)
         if data:
@@ -996,8 +996,8 @@ class MQTTPublishReceivePacket(MQTTPacket, PropertiesMixin, ReasonCodeMixin):
     ) -> tuple[memoryview, MQTTPublishReceivePacket]:
         # Decode the variable header
         reason_code = ReasonCode.SUCCESS
-        properties = {}
-        user_properties = {}
+        properties: dict[PropertyType, PropertyValue] = {}
+        user_properties: dict[str, str] = {}
 
         data, packet_id = decode_fixed_integer(data, 2)
         if data:
@@ -1052,8 +1052,8 @@ class MQTTPublishReleasePacket(MQTTPacket, PropertiesMixin, ReasonCodeMixin):
     ) -> tuple[memoryview, MQTTPublishReleasePacket]:
         # Decode the variable header
         reason_code = ReasonCode.SUCCESS
-        properties = {}
-        user_properties = {}
+        properties: dict[PropertyType, PropertyValue] = {}
+        user_properties: dict[str, str] = {}
 
         data, packet_id = decode_fixed_integer(data, 2)
         if data:
@@ -1107,8 +1107,8 @@ class MQTTPublishCompletePacket(MQTTPacket, PropertiesMixin, ReasonCodeMixin):
     ) -> tuple[memoryview, MQTTPublishCompletePacket]:
         # Decode the variable header
         reason_code = ReasonCode.SUCCESS
-        properties = {}
-        user_properties = {}
+        properties: dict[PropertyType, PropertyValue] = {}
+        user_properties: dict[str, str] = {}
 
         data, packet_id = decode_fixed_integer(data, 2)
         if data:
@@ -1465,8 +1465,8 @@ class MQTTDisconnectPacket(MQTTPacket, PropertiesMixin, ReasonCodeMixin):
     ) -> tuple[memoryview, MQTTDisconnectPacket]:
         # Decode the variable header
         reason_code = ReasonCode.SUCCESS
-        properties = {}
-        user_properties = {}
+        properties: dict[PropertyType, PropertyValue] = {}
+        user_properties: dict[str, str] = {}
 
         if data:
             data, reason_code = cls.decode_reason_code(data)
