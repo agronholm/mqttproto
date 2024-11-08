@@ -37,7 +37,7 @@ class MQTTClientStateMachine(BaseMQTTClientStateMachine):
         validator=instance_of(str), factory=lambda: f"mqttproto-{uuid4().hex}"
     )
     _ping_pending: bool = field(init=False, default=False)
-    _maximum_qos: bool = field(init=False, default=QoS.EXACTLY_ONCE)
+    _maximum_qos: QoS = field(init=False, default=QoS.EXACTLY_ONCE)
     _subscriptions: dict[str, Subscription] = field(init=False, factory=dict)
     _subscription_counts: dict[str, int] = field(
         init=False, factory=lambda: defaultdict(lambda: 0)
