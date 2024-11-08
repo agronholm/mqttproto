@@ -930,9 +930,15 @@ class MQTTPublishAckPacket(MQTTPacket, PropertiesMixin, ReasonCodeMixin):
         cls, data: memoryview, flags: int
     ) -> tuple[memoryview, MQTTPublishAckPacket]:
         # Decode the variable header
+        reason_code = ReasonCode.SUCCESS
+        properties = {}
+        user_properties = {}
+
         data, packet_id = decode_fixed_integer(data, 2)
-        data, reason_code = cls.decode_reason_code(data)
-        data, properties, user_properties = cls.decode_properties(data)
+        if data:
+            data, reason_code = cls.decode_reason_code(data)
+            if data:
+                data, properties, user_properties = cls.decode_properties(data)
 
         return data, MQTTPublishAckPacket(
             packet_id=packet_id,
@@ -989,9 +995,15 @@ class MQTTPublishReceivePacket(MQTTPacket, PropertiesMixin, ReasonCodeMixin):
         cls, data: memoryview, flags: int
     ) -> tuple[memoryview, MQTTPublishReceivePacket]:
         # Decode the variable header
+        reason_code = ReasonCode.SUCCESS
+        properties = {}
+        user_properties = {}
+
         data, packet_id = decode_fixed_integer(data, 2)
-        data, reason_code = cls.decode_reason_code(data)
-        data, properties, user_properties = cls.decode_properties(data)
+        if data:
+            data, reason_code = cls.decode_reason_code(data)
+            if data:
+                data, properties, user_properties = cls.decode_properties(data)
 
         return data, MQTTPublishReceivePacket(
             packet_id=packet_id,
@@ -1039,9 +1051,15 @@ class MQTTPublishReleasePacket(MQTTPacket, PropertiesMixin, ReasonCodeMixin):
         cls, data: memoryview, flags: int
     ) -> tuple[memoryview, MQTTPublishReleasePacket]:
         # Decode the variable header
+        reason_code = ReasonCode.SUCCESS
+        properties = {}
+        user_properties = {}
+
         data, packet_id = decode_fixed_integer(data, 2)
-        data, reason_code = cls.decode_reason_code(data)
-        data, properties, user_properties = cls.decode_properties(data)
+        if data:
+            data, reason_code = cls.decode_reason_code(data)
+            if data:
+                data, properties, user_properties = cls.decode_properties(data)
 
         return data, MQTTPublishReleasePacket(
             packet_id=packet_id,
@@ -1088,9 +1106,15 @@ class MQTTPublishCompletePacket(MQTTPacket, PropertiesMixin, ReasonCodeMixin):
         cls, data: memoryview, flags: int
     ) -> tuple[memoryview, MQTTPublishCompletePacket]:
         # Decode the variable header
+        reason_code = ReasonCode.SUCCESS
+        properties = {}
+        user_properties = {}
+
         data, packet_id = decode_fixed_integer(data, 2)
-        data, reason_code = cls.decode_reason_code(data)
-        data, properties, user_properties = cls.decode_properties(data)
+        if data:
+            data, reason_code = cls.decode_reason_code(data)
+            if data:
+                data, properties, user_properties = cls.decode_properties(data)
 
         return data, MQTTPublishCompletePacket(
             packet_id=packet_id,
