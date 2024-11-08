@@ -480,6 +480,14 @@ class AsyncMQTTClient:
         if operation.exception:
             raise operation.exception
 
+    def supports_qos(self, qos: QoS) -> bool:
+        """
+        Check if the broker supports this QoS level.
+
+        :param qos: The desired QoS value.
+        """
+        return self._state_machine.supports_qos(qos)
+
     async def publish(
         self,
         topic: str,
