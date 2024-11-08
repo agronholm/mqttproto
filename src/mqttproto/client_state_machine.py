@@ -37,6 +37,7 @@ class MQTTClientStateMachine(BaseMQTTClientStateMachine):
         validator=instance_of(str), factory=lambda: f"mqttproto-{uuid4().hex}"
     )
     _ping_pending: bool = field(init=False, default=False)
+    may_retain: bool = field(init=False, default=True)
     _subscriptions: dict[str, Subscription] = field(init=False, factory=dict)
     _subscription_counts: dict[str, int] = field(
         init=False, factory=lambda: defaultdict(lambda: 0)
@@ -69,7 +70,9 @@ class MQTTClientStateMachine(BaseMQTTClientStateMachine):
                 self._auth_method = cast(
                     str, packet.properties.get(PropertyType.AUTHENTICATION_METHOD)
                 )
-
+                self.may_retain = cast(
+                    bool, packet.properties.get(PropertyType.RETAIN_AVAILABLE)
+                )
                 self.reset(session_present=packet.session_present)
 
                 # Resend any pending publishes (and set the duplicate flag)
@@ -149,6 +152,9 @@ class MQTTClientStateMachine(BaseMQTTClientStateMachine):
             topic too
         :return: the packet ID if ``qos`` was higher than 0
 
+        A QoS that's not supported by the server is silently downgraded.
+        If Retain is not supported, the message is sent as-is because
+        the server is free to accept it anyway.
         """
         self._out_require_state(MQTTClientState.CONNECTED)
         packet_id = self._generate_packet_id() if qos > QoS.AT_MOST_ONCE else None
