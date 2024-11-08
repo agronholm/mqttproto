@@ -36,7 +36,8 @@ class MQTTClientStateMachine(BaseMQTTClientStateMachine):
     client_id: str = field(
         validator=instance_of(str), factory=lambda: f"mqttproto-{uuid4().hex}"
     )
-    _ping_pending: bool = field(init=False, default=False)
+    keep_alive: int = field(init=False, default=0)
+    _pings_pending: int = field(init=False, default=0)
     _subscriptions: dict[str, Subscription] = field(init=False, factory=dict)
     _subscription_counts: dict[str, int] = field(
         init=False, factory=lambda: defaultdict(lambda: 0)
@@ -47,7 +48,7 @@ class MQTTClientStateMachine(BaseMQTTClientStateMachine):
         self._auto_ack_publishes = True
 
     def reset(self, session_present: bool) -> None:
-        self._ping_pending = False
+        self._pings_pending = 0
         if session_present:
             self._pending_packets = {
                 packet_id: packet
@@ -57,6 +58,15 @@ class MQTTClientStateMachine(BaseMQTTClientStateMachine):
         else:
             self._next_packet_id = 1
             self._subscriptions.clear()
+
+    @property
+    def pings_pending(self) -> int:
+        """
+        Check whether the last Ping we sent has been answered.
+
+        Returns ``None`` if no Ping request was yet sent.
+        """
+        return self._pings_pending
 
     def _handle_packet(self, packet: MQTTPacket) -> bool:
         if super()._handle_packet(packet):
@@ -68,6 +78,9 @@ class MQTTClientStateMachine(BaseMQTTClientStateMachine):
                 self._state = MQTTClientState.CONNECTED
                 self._auth_method = cast(
                     str, packet.properties.get(PropertyType.AUTHENTICATION_METHOD)
+                )
+                self.keep_alive = cast(
+                    int, packet.properties.get(PropertyType.SERVER_KEEP_ALIVE)
                 )
 
                 self.reset(session_present=packet.session_present)
@@ -81,7 +94,7 @@ class MQTTClientStateMachine(BaseMQTTClientStateMachine):
                 self._state = MQTTClientState.DISCONNECTED
         elif isinstance(packet, MQTTPingResponsePacket):
             self._in_require_state(packet, MQTTClientState.CONNECTED)
-            self._ping_pending = False
+            self._pings_pending = 0
         elif isinstance(packet, MQTTSubscribeAckPacket):
             self._in_require_state(packet, MQTTClientState.CONNECTED)
             self._pop_pending_packet(packet.packet_id, MQTTSubscribePacket)
@@ -129,7 +142,7 @@ class MQTTClientStateMachine(BaseMQTTClientStateMachine):
         self._out_require_state(MQTTClientState.CONNECTED)
         packet = MQTTPingRequestPacket()
         packet.encode(self._out_buffer)
-        self._ping_pending = True
+        self._pings_pending += 1
 
     def publish(
         self,

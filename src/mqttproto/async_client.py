@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar
 import stamina
 from anyio import (
     BrokenResourceError,
+    CancelScope,
     ClosedResourceError,
     Event,
     Lock,
@@ -19,6 +20,8 @@ from anyio import (
     connect_unix,
     create_memory_object_stream,
     create_task_group,
+    fail_after,
+    sleep,
 )
 from anyio.abc import ByteReceiveStream, ByteStream, TaskStatus
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
@@ -51,9 +54,9 @@ from ._types import (
 from .client_state_machine import MQTTClientStateMachine
 
 if sys.version_info >= (3, 11):
-    from typing import Self
+    from typing import Never, Self
 else:
-    from typing_extensions import Self
+    from typing_extensions import Never, Self
 
 if TYPE_CHECKING:
     from httpx_ws import AsyncWebSocketSession
@@ -224,8 +227,10 @@ class AsyncMQTTClient:
         willing to store at once
     :param max_packet_size: maximum packet size in bytes, or ``None`` for no limit
     :param will: message that will be published by the broker on the client's behalf if
-        the client disconnects unexpectedly or fails to communicate within the keepalive
+        the client disconnects unexpectedly or fails to communicate within the keep_alive
         time
+    :param keep_alive: the keep_alive timeout we ask for. Note that the server might
+        reply with a lower value.
     """
 
     host_or_path: str | None = field(default=None, validator=optional(instance_of(str)))
@@ -258,6 +263,7 @@ class AsyncMQTTClient:
     will: Will | None = field(
         kw_only=True, default=None, validator=optional(instance_of(Will))
     )
+    keep_alive: int = field(kw_only=True, validator=[ge(0), le(65535)], default=0)
 
     _exit_stack: AsyncExitStack = field(init=False)
     _closed: bool = field(init=False, default=False)
@@ -267,6 +273,8 @@ class AsyncMQTTClient:
     _stream_lock: Lock = field(init=False, factory=Lock)
     _pending_connect: MQTTConnectOperation | None = field(init=False, default=None)
     _pending_operations: dict[int, MQTTOperation[Any]] = field(init=False, factory=dict)
+    _did_send: Event = field(init=False, factory=Event)
+    _keepalive_task: CancelScope | None = field(init=False, default=None)
 
     def __attrs_post_init__(self) -> None:
         if not self.host_or_path:
@@ -338,16 +346,39 @@ class AsyncMQTTClient:
                 # Perform the MQTT handshake (send conn + receive connack)
                 await self._do_handshake()
 
+                if self.keep_alive:
+                    self._keepalive_task = await task_group.start(
+                        self._send_keepalive,
+                    )
+
                 # Signal that the client is ready
                 if not task_status_sent:
                     task_status.started()
                     task_status_sent = True
+
+    async def _send_keepalive(self, *, task_status: TaskStatus[CancelScope]) -> Never:
+        with CancelScope() as sc:
+            self._did_send = Event()
+            task_status.started(sc)
+            while True:
+                # avoid unnecessary churn when there's sufficient traffic
+                await sleep(self.keep_alive / 2)
+                try:
+                    with fail_after(self.keep_alive / 2):
+                        await self._did_send.wait()
+                except TimeoutError:
+                    if self._state_machine.pings_pending > 2:
+                        raise
+                    self._state_machine.ping()
+                    await self._flush_outbound_data()  # sets the event
+                self._did_send = Event()
 
     async def _do_handshake(self) -> None:
         self._state_machine.connect(
             username=self.username,
             password=self.password,
             will=self.will,
+            keep_alive=self.keep_alive,
         )
         operation = MQTTConnectOperation()
         await self._run_operation(operation)
@@ -375,6 +406,10 @@ class AsyncMQTTClient:
                     await self._handle_packet(packet)
         except exception_classes:
             pass
+        finally:
+            if self._keepalive_task:
+                self._keepalive_task.cancel()
+                self._keepalive_task = None
 
     async def _handle_packet(self, packet: MQTTPacket) -> None:
         if isinstance(packet, MQTTPublishPacket):
@@ -454,6 +489,7 @@ class AsyncMQTTClient:
                     return
 
     async def _flush_outbound_data(self) -> None:
+        self._did_send.set()
         async with self._stream_lock:
             if data := self._state_machine.get_outbound_data():
                 await self._stream.send(data)
