@@ -27,10 +27,17 @@ async def test_publish_subscribe(qos: QoS) -> None:
 
 
 async def test_retained_message() -> None:
-    async with AsyncMQTTClient() as client:
-        await client.publish("retainedtest", "test åäö", retain=True)
-        async with client.subscribe("retainedtest") as messages:
-            async for packet in messages:
-                assert packet.topic == "retainedtest"
-                assert packet.payload == "test åäö"
-                break
+    try:
+        async with AsyncMQTTClient() as client:
+            if not client.may_retain:
+                pytest.skip("Retain not available")
+            await client.publish("retainedtest", "test åäö", retain=True)
+            async with client.subscribe("retainedtest") as messages:
+                async for packet in messages:
+                    assert packet.topic == "retainedtest"
+                    assert packet.payload == "test åäö"
+                    break
+    except BaseExceptionGroup as exc:
+        while isinstance(exc, BaseExceptionGroup) and len(exc.exceptions) == 1:
+            exc = exc.exceptions[0]
+        raise exc
