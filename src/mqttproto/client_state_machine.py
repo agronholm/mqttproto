@@ -73,10 +73,10 @@ class MQTTClientStateMachine(BaseMQTTClientStateMachine):
                 self.reset(session_present=packet.session_present)
 
                 # Resend any pending publishes (and set the duplicate flag)
-                for publish in self._pending_packets.values():
-                    assert isinstance(publish, MQTTPublishPacket)
-                    publish.duplicate = True
-                    publish.encode(self._out_buffer)
+                for packet in self._pending_packets.values():
+                    if isinstance(packet, MQTTPublishPacket):
+                        packet.duplicate = True
+                    packet.encode(self._out_buffer)
             else:
                 self._state = MQTTClientState.DISCONNECTED
         elif isinstance(packet, MQTTPingResponsePacket):
