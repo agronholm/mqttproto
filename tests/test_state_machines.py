@@ -110,7 +110,6 @@ def test_client_limit_qos(qos) -> None:
     client = MQTTClientStateMachine(client_id="client-X")
     client.connect()
     assert client.state is MQTTClientState.CONNECTING
-    _bytes = client.get_outbound_data()  # ignored
 
     packet = MQTTConnAckPacket(
         reason_code=ReasonCode.SUCCESS,
