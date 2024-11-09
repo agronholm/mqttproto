@@ -484,6 +484,13 @@ class AsyncMQTTClient:
         if operation.exception:
             raise operation.exception
 
+    @property
+    def maximum_qos(self) -> QoS:
+        """
+        Returns the maximum QoS level that the broker supports.
+        """
+        return self._state_machine.maximum_qos
+
     async def publish(
         self,
         topic: str,
@@ -528,7 +535,7 @@ class AsyncMQTTClient:
         :param patterns: either exact topic names, or patterns containing wildcards
             (``+`` or ``#``)
         :param maximum_qos: maximum QoS to allow (messages matching the given patterns
-            but with higher QoS will not be sent to this client)
+            but with higher QoS will be downgraded to that QoS)
         :param no_local: if ``True``, messages published by this client will not be sent
             back to it via this subscription
         :param retain_as_published: if ``False``, the broker will clear the ``retained``

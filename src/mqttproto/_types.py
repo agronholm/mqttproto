@@ -930,9 +930,15 @@ class MQTTPublishAckPacket(MQTTPacket, PropertiesMixin, ReasonCodeMixin):
         cls, data: memoryview, flags: int
     ) -> tuple[memoryview, MQTTPublishAckPacket]:
         # Decode the variable header
+        reason_code = ReasonCode.SUCCESS
+        properties: dict[PropertyType, PropertyValue] = {}
+        user_properties: dict[str, str] = {}
+
         data, packet_id = decode_fixed_integer(data, 2)
-        data, reason_code = cls.decode_reason_code(data)
-        data, properties, user_properties = cls.decode_properties(data)
+        if data:
+            data, reason_code = cls.decode_reason_code(data)
+            if data:
+                data, properties, user_properties = cls.decode_properties(data)
 
         return data, MQTTPublishAckPacket(
             packet_id=packet_id,
@@ -989,9 +995,15 @@ class MQTTPublishReceivePacket(MQTTPacket, PropertiesMixin, ReasonCodeMixin):
         cls, data: memoryview, flags: int
     ) -> tuple[memoryview, MQTTPublishReceivePacket]:
         # Decode the variable header
+        reason_code = ReasonCode.SUCCESS
+        properties: dict[PropertyType, PropertyValue] = {}
+        user_properties: dict[str, str] = {}
+
         data, packet_id = decode_fixed_integer(data, 2)
-        data, reason_code = cls.decode_reason_code(data)
-        data, properties, user_properties = cls.decode_properties(data)
+        if data:
+            data, reason_code = cls.decode_reason_code(data)
+            if data:
+                data, properties, user_properties = cls.decode_properties(data)
 
         return data, MQTTPublishReceivePacket(
             packet_id=packet_id,
@@ -1039,9 +1051,15 @@ class MQTTPublishReleasePacket(MQTTPacket, PropertiesMixin, ReasonCodeMixin):
         cls, data: memoryview, flags: int
     ) -> tuple[memoryview, MQTTPublishReleasePacket]:
         # Decode the variable header
+        reason_code = ReasonCode.SUCCESS
+        properties: dict[PropertyType, PropertyValue] = {}
+        user_properties: dict[str, str] = {}
+
         data, packet_id = decode_fixed_integer(data, 2)
-        data, reason_code = cls.decode_reason_code(data)
-        data, properties, user_properties = cls.decode_properties(data)
+        if data:
+            data, reason_code = cls.decode_reason_code(data)
+            if data:
+                data, properties, user_properties = cls.decode_properties(data)
 
         return data, MQTTPublishReleasePacket(
             packet_id=packet_id,
@@ -1088,9 +1106,15 @@ class MQTTPublishCompletePacket(MQTTPacket, PropertiesMixin, ReasonCodeMixin):
         cls, data: memoryview, flags: int
     ) -> tuple[memoryview, MQTTPublishCompletePacket]:
         # Decode the variable header
+        reason_code = ReasonCode.SUCCESS
+        properties: dict[PropertyType, PropertyValue] = {}
+        user_properties: dict[str, str] = {}
+
         data, packet_id = decode_fixed_integer(data, 2)
-        data, reason_code = cls.decode_reason_code(data)
-        data, properties, user_properties = cls.decode_properties(data)
+        if data:
+            data, reason_code = cls.decode_reason_code(data)
+            if data:
+                data, properties, user_properties = cls.decode_properties(data)
 
         return data, MQTTPublishCompletePacket(
             packet_id=packet_id,
@@ -1440,8 +1464,14 @@ class MQTTDisconnectPacket(MQTTPacket, PropertiesMixin, ReasonCodeMixin):
         cls, data: memoryview, flags: int
     ) -> tuple[memoryview, MQTTDisconnectPacket]:
         # Decode the variable header
-        data, reason_code = cls.decode_reason_code(data)
-        data, properties, user_properties = cls.decode_properties(data)
+        reason_code = ReasonCode.SUCCESS
+        properties: dict[PropertyType, PropertyValue] = {}
+        user_properties: dict[str, str] = {}
+
+        if data:
+            data, reason_code = cls.decode_reason_code(data)
+            if data:
+                data, properties, user_properties = cls.decode_properties(data)
 
         return data, MQTTDisconnectPacket(
             reason_code=reason_code,
@@ -1541,7 +1571,14 @@ def decode_packet(
             f"received {packet_type._name_} with reserved bits set in its fixed header"
         )
 
-    leftover_data, packet = packet_cls.decode(data[:remaining_length], flags)
+    try:
+        leftover_data, packet = packet_cls.decode(data[:remaining_length], flags)
+    except InsufficientData as exc:
+        # this is a problem with our code, not an MQTT error
+        raise RuntimeError(
+            f"decoding {packet_type._name_} consumed more data than available"
+        ) from exc
+
     if leftover_data:
         raise MQTTDecodeError(
             f"not all data was consumed when decoding a {packet_type._name_} packet"

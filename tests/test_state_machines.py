@@ -104,6 +104,24 @@ def test_client_publish_qos0(
     assert packet.payload == "payload"
 
 
+@pytest.mark.parametrize("qos", [QoS.AT_MOST_ONCE, QoS.AT_LEAST_ONCE, QoS.EXACTLY_ONCE])
+def test_client_limit_qos(qos: QoS) -> None:
+    """Test that a limited QoS is processed in the client."""
+    client = MQTTClientStateMachine(client_id="client-X")
+    client.connect()
+    assert client.state is MQTTClientState.CONNECTING
+
+    packet = MQTTConnAckPacket(
+        reason_code=ReasonCode.SUCCESS,
+        session_present=False,
+        properties={PropertyType.MAXIMUM_QOS: qos} if qos < QoS.EXACTLY_ONCE else {},
+    )
+    buffer = bytearray()
+    packet.encode(buffer)
+    client.feed_bytes(buffer)
+    assert client.maximum_qos == qos
+
+
 def test_client_receive_qos0(
     client_session_pairs: list[
         tuple[MQTTClientStateMachine, MQTTBrokerClientStateMachine]

@@ -25,7 +25,7 @@ jobs:
     - name: Start external services
       run: docker compose up -d
     - name: Install the project and its dependencies
-      run: pip install .[test]
+      run: pip install -e .[test]
     - name: Test with pytest
       run: coverage run -m pytest
     - name: Upload Coverage

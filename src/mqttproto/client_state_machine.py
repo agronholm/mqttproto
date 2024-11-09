@@ -38,6 +38,7 @@ class MQTTClientStateMachine(BaseMQTTClientStateMachine):
     )
     _ping_pending: bool = field(init=False, default=False)
     _may_retain: bool = field(init=False, default=True)
+    _maximum_qos: QoS = field(init=False, default=QoS.EXACTLY_ONCE)
     _subscriptions: dict[str, Subscription] = field(init=False, factory=dict)
     _subscription_counts: dict[str, int] = field(
         init=False, factory=lambda: defaultdict(lambda: 0)
@@ -78,12 +79,18 @@ class MQTTClientStateMachine(BaseMQTTClientStateMachine):
                 self._may_retain = cast(
                     bool, packet.properties.get(PropertyType.RETAIN_AVAILABLE, True)
                 )
+                self._maximum_qos = cast(
+                    QoS,
+                    packet.properties.get(PropertyType.MAXIMUM_QOS, QoS.EXACTLY_ONCE),
+                )
+
                 self.reset(session_present=packet.session_present)
 
                 # Resend any pending publishes (and set the duplicate flag)
                 for publish in self._pending_packets.values():
                     assert isinstance(publish, MQTTPublishPacket)
                     publish.duplicate = True
+
                     publish.encode(self._out_buffer)
             else:
                 self._state = MQTTClientState.DISCONNECTED
@@ -171,6 +178,13 @@ class MQTTClientStateMachine(BaseMQTTClientStateMachine):
             self._add_pending_packet(packet)
 
         return packet.packet_id
+
+    @property
+    def maximum_qos(self) -> QoS:
+        """
+        Returns the maximum QoS level that the broker supports.
+        """
+        return self._maximum_qos
 
     def subscribe(self, subscriptions: Sequence[Subscription]) -> int | None:
         """
