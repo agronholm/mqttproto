@@ -286,6 +286,10 @@ class AsyncMQTTClient:
 
         self._state_machine = MQTTClientStateMachine(client_id=self.client_id)
 
+    @property
+    def may_retain(self) -> bool:
+        return self._state_machine.may_retain
+
     async def __aenter__(self) -> Self:
         async with AsyncExitStack() as exit_stack:
             task_group = await exit_stack.enter_async_context(create_task_group())

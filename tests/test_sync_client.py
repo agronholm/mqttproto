@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sys
+
 import pytest
 
 from mqttproto import MQTTPublishPacket, QoS
@@ -26,11 +28,24 @@ def test_publish_subscribe(qos: QoS) -> None:
             assert packets[1].payload == b"\x00\xff\x00\x1f"
 
 
+if sys.version_info < (3, 11):
+
+    class BaseExceptionGroup(BaseException):
+        exceptions: list[BaseExceptionGroup] = []
+
+
 def test_retained_message() -> None:
-    with MQTTClient() as client:
-        client.publish("retainedtest", "test åäö", retain=True)
-        with client.subscribe("retainedtest") as messages:
-            for packet in messages:
-                assert packet.topic == "retainedtest"
-                assert packet.payload == "test åäö"
-                break
+    try:
+        with MQTTClient() as client:
+            if not client.may_retain:
+                pytest.skip("Retain not available")
+            client.publish("retainedtest", "test åäö", retain=True)
+            with client.subscribe("retainedtest") as messages:
+                for packet in messages:
+                    assert packet.topic == "retainedtest"
+                    assert packet.payload == "test åäö"
+                    break
+    except BaseExceptionGroup as exc:
+        while isinstance(exc, BaseExceptionGroup) and len(exc.exceptions) == 1:
+            exc = exc.exceptions[0]
+        raise exc

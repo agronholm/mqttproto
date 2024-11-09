@@ -75,6 +75,10 @@ class MQTTClient:
             **kwargs,
         )
 
+    @property
+    def may_retain(self) -> bool:
+        return self._async_client.may_retain
+
     def __enter__(self) -> Self:
         with ExitStack() as exit_stack:
             self._portal = exit_stack.enter_context(portal_provider)

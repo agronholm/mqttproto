@@ -309,3 +309,24 @@ def test_client_receive_qos2(
     packet = packets[0]
     assert isinstance(packet, MQTTPublishCompletePacket)
     assert packet.reason_code is ReasonCode.SUCCESS
+
+
+@pytest.mark.parametrize("retain", [None, False, True])
+def test_client_retain(retain: bool | None) -> None:
+    """Test that server's RETAINability is processed in the client"""
+    client = MQTTClientStateMachine(client_id="client-X")
+    client.connect()
+    assert client.state is MQTTClientState.CONNECTING
+    _bytes = client.get_outbound_data()  # ignored
+
+    packet = MQTTConnAckPacket(
+        reason_code=ReasonCode.SUCCESS,
+        session_present=False,
+        properties={PropertyType.RETAIN_AVAILABLE: retain}
+        if retain is not None
+        else {},
+    )
+    buffer = bytearray()
+    packet.encode(buffer)
+    client.feed_bytes(buffer)
+    assert client.may_retain == (retain is not False)

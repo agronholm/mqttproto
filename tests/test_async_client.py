@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import sys
+
 import pytest
 
 from mqttproto import MQTTPublishPacket, QoS
 from mqttproto.async_client import AsyncMQTTClient
+
+if sys.version_info < (3, 11):
+    from exceptiongroup import BaseExceptionGroup
 
 pytestmark = [pytest.mark.anyio, pytest.mark.network]
 
@@ -37,10 +42,17 @@ async def test_publish_subscribe(qos_sub: QoS, qos_pub: QoS) -> None:
 
 
 async def test_retained_message() -> None:
-    async with AsyncMQTTClient() as client:
-        await client.publish("retainedtest", "test åäö", retain=True)
-        async with client.subscribe("retainedtest") as messages:
-            async for packet in messages:
-                assert packet.topic == "retainedtest"
-                assert packet.payload == "test åäö"
-                break
+    try:
+        async with AsyncMQTTClient() as client:
+            if not client.may_retain:
+                pytest.skip("Retain not available")
+            await client.publish("retainedtest", "test åäö", retain=True)
+            async with client.subscribe("retainedtest") as messages:
+                async for packet in messages:
+                    assert packet.topic == "retainedtest"
+                    assert packet.payload == "test åäö"
+                    break
+    except BaseExceptionGroup as exc:
+        while isinstance(exc, BaseExceptionGroup) and len(exc.exceptions) == 1:
+            exc = exc.exceptions[0]
+        raise exc
