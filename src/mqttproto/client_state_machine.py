@@ -71,7 +71,7 @@ class MQTTClientStateMachine(BaseMQTTClientStateMachine):
                     str, packet.properties.get(PropertyType.AUTHENTICATION_METHOD)
                 )
                 self.may_retain = cast(
-                    bool, packet.properties.get(PropertyType.RETAIN_AVAILABLE)
+                    bool, packet.properties.get(PropertyType.RETAIN_AVAILABLE, True)
                 )
                 self.reset(session_present=packet.session_present)
 
