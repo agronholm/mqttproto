@@ -37,7 +37,7 @@ class MQTTClientStateMachine(BaseMQTTClientStateMachine):
         validator=instance_of(str), factory=lambda: f"mqttproto-{uuid4().hex}"
     )
     _ping_pending: bool = field(init=False, default=False)
-    may_retain: bool = field(init=False, default=True)
+    _may_retain: bool = field(init=False, default=True)
     _subscriptions: dict[str, Subscription] = field(init=False, factory=dict)
     _subscription_counts: dict[str, int] = field(
         init=False, factory=lambda: defaultdict(lambda: 0)
@@ -46,6 +46,11 @@ class MQTTClientStateMachine(BaseMQTTClientStateMachine):
     def __init__(self, client_id: str | None = None):
         self.__attrs_init__(client_id=client_id or f"mqttproto-{uuid4().hex}")
         self._auto_ack_publishes = True
+
+    @property
+    def may_retain(self) -> bool:
+        """Does the server support RETAINed messages?"""
+        return self._may_retain
 
     def reset(self, session_present: bool) -> None:
         self._ping_pending = False
@@ -70,7 +75,7 @@ class MQTTClientStateMachine(BaseMQTTClientStateMachine):
                 self._auth_method = cast(
                     str, packet.properties.get(PropertyType.AUTHENTICATION_METHOD)
                 )
-                self.may_retain = cast(
+                self._may_retain = cast(
                     bool, packet.properties.get(PropertyType.RETAIN_AVAILABLE, True)
                 )
                 self.reset(session_present=packet.session_present)
