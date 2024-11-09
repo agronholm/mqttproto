@@ -157,7 +157,6 @@ class MQTTClientStateMachine(BaseMQTTClientStateMachine):
 
         """
         self._out_require_state(MQTTClientState.CONNECTED)
-        qos = min(qos, self._maximum_qos)
         packet_id = self._generate_packet_id() if qos > QoS.AT_MOST_ONCE else None
         packet = MQTTPublishPacket(
             topic=topic, payload=payload, qos=qos, retain=retain, packet_id=packet_id
