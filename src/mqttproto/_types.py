@@ -1573,11 +1573,11 @@ def decode_packet(
 
     try:
         leftover_data, packet = packet_cls.decode(data[:remaining_length], flags)
-    except InsufficientData:
-        # this is a problem with our code, not a MQTT error
+    except InsufficientData as exc:
+        # this is a problem with our code, not an MQTT error
         raise RuntimeError(
             f"decoding {packet_type._name_} consumed more data than available"
-        )
+        ) from exc
 
     if leftover_data:
         raise MQTTDecodeError(
