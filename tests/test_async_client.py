@@ -27,8 +27,10 @@ async def test_publish_subscribe(qos_sub: QoS, qos_pub: QoS) -> None:
 
             assert packets[0].topic == "test/text"
             assert packets[0].payload == "test åäö"
+            assert packets[0].qos == min(qos_sub, qos_pub)
             assert packets[1].topic == "test/binary"
             assert packets[1].payload == b"\x00\xff\x00\x1f"
+            assert packets[1].qos == min(qos_sub, qos_pub)
 
 
 async def test_retained_message() -> None:
