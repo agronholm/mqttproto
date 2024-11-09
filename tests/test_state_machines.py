@@ -105,7 +105,7 @@ def test_client_publish_qos0(
 
 
 @pytest.mark.parametrize("qos", [QoS.AT_MOST_ONCE, QoS.AT_LEAST_ONCE, QoS.EXACTLY_ONCE])
-def test_client_limit_qos(qos) -> None:
+def test_client_limit_qos(qos: QoS) -> None:
     """Test that a limited QoS is processed in the client."""
     client = MQTTClientStateMachine(client_id="client-X")
     client.connect()
