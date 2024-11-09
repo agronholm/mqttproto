@@ -408,6 +408,17 @@ class TestMQTTPublishAckPacket:
         assert packet2 == packet
         assert not leftover_data
 
+    def test_partial(self) -> None:
+        packet = MQTTPublishAckPacket(packet_id=65534, reason_code=ReasonCode.SUCCESS)
+        buffer = bytearray()
+        buffer2 = bytearray()
+        encode_fixed_integer(packet.packet_id, buffer2, 2)
+
+        packet.encode_fixed_header(0, buffer2, buffer)
+        leftover_data, packet2 = decode_packet(memoryview(buffer))
+        assert packet2 == packet
+        assert not leftover_data
+
     def test_bad_reason_codes(self) -> None:
         for reason_code in ReasonCode.__members__.values():
             if reason_code not in MQTTPublishAckPacket.allowed_reason_codes:
@@ -439,6 +450,19 @@ class TestMQTTPublishReceivePacket:
         buffer = bytearray()
         packet.encode(buffer)
 
+        leftover_data, packet2 = decode_packet(memoryview(buffer))
+        assert packet2 == packet
+        assert not leftover_data
+
+    def test_partial(self) -> None:
+        packet = MQTTPublishReceivePacket(
+            packet_id=65534, reason_code=ReasonCode.SUCCESS
+        )
+        buffer = bytearray()
+        buffer2 = bytearray()
+        encode_fixed_integer(packet.packet_id, buffer2, 2)
+
+        packet.encode_fixed_header(0, buffer2, buffer)
         leftover_data, packet2 = decode_packet(memoryview(buffer))
         assert packet2 == packet
         assert not leftover_data
@@ -478,6 +502,19 @@ class TestMQTTPublishReleasePacket:
         assert packet2 == packet
         assert not leftover_data
 
+    def test_partial(self) -> None:
+        packet = MQTTPublishReleasePacket(
+            packet_id=65534, reason_code=ReasonCode.SUCCESS
+        )
+        buffer = bytearray()
+        buffer2 = bytearray()
+        encode_fixed_integer(packet.packet_id, buffer2, 2)
+
+        packet.encode_fixed_header(2, buffer2, buffer)
+        leftover_data, packet2 = decode_packet(memoryview(buffer))
+        assert packet2 == packet
+        assert not leftover_data
+
     def test_bad_reason_codes(self) -> None:
         for reason_code in ReasonCode.__members__.values():
             if reason_code not in MQTTPublishReleasePacket.allowed_reason_codes:
@@ -509,6 +546,19 @@ class TestMQTTPublishCompletePacket:
         buffer = bytearray()
         packet.encode(buffer)
 
+        leftover_data, packet2 = decode_packet(memoryview(buffer))
+        assert packet2 == packet
+        assert not leftover_data
+
+    def test_partial(self) -> None:
+        packet = MQTTPublishCompletePacket(
+            packet_id=65534, reason_code=ReasonCode.SUCCESS
+        )
+        buffer = bytearray()
+        buffer2 = bytearray()
+        encode_fixed_integer(packet.packet_id, buffer2, 2)
+
+        packet.encode_fixed_header(0, buffer2, buffer)
         leftover_data, packet2 = decode_packet(memoryview(buffer))
         assert packet2 == packet
         assert not leftover_data
@@ -718,6 +768,15 @@ class TestMQTTDisconnectPacket:
         buffer = bytearray()
         packet.encode(buffer)
 
+        leftover_data, packet2 = decode_packet(memoryview(buffer))
+        assert packet2 == packet
+        assert not leftover_data
+
+    def test_partial(self) -> None:
+        packet = MQTTDisconnectPacket(reason_code=ReasonCode.NORMAL_DISCONNECTION)
+        buffer = bytearray()
+
+        packet.encode_fixed_header(0, b"", buffer)
         leftover_data, packet2 = decode_packet(memoryview(buffer))
         assert packet2 == packet
         assert not leftover_data
