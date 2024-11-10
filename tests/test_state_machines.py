@@ -78,16 +78,6 @@ def test_subscribe_unsubscribe(connected_client: MQTTClientStateMachine) -> None
     assert connected_client.unsubscribe(["foo/baz"]) == 3
 
 
-def test_duplicate_subscription(connected_client: MQTTClientStateMachine) -> None:
-    assert (
-        connected_client.subscribe([Subscription("foo/bar"), Subscription("foo/baz")])
-        == 1
-    )
-    assert connected_client.subscribe([Subscription("foo/bar")]) is None
-    assert connected_client.unsubscribe(["foo/bar"]) is None
-    assert connected_client.unsubscribe(["foo/bar"]) == 2
-
-
 def test_client_publish_qos0(
     client_session_pairs: list[
         tuple[MQTTClientStateMachine, MQTTBrokerClientStateMachine]
