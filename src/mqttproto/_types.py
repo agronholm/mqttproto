@@ -458,6 +458,7 @@ class Subscription:
     retain_handling: RetainHandling = field(
         kw_only=True, default=RetainHandling.SEND_RETAINED
     )
+    subscription_id: int = field(kw_only=True, default=0)
     group_id: str | None = field(init=False, default=None)
     _parts: tuple[str, ...] = field(init=False, repr=False, eq=False)
     _prefix: str | None = field(init=False, repr=False, eq=False)
@@ -1224,6 +1225,11 @@ class MQTTSubscribePacket(MQTTPacket, PropertiesMixin):
         subscriptions: list[Subscription] = []
         while data:
             data, subscription = Subscription.decode(data)
+            subscr_id = cast(
+                "list[int] | None", properties.get(PropertyType.SUBSCRIPTION_IDENTIFIER)
+            )
+            if subscr_id:
+                subscription.subscription_id = subscr_id[0]
             subscriptions.append(subscription)
 
         return data, MQTTSubscribePacket(
