@@ -539,9 +539,11 @@ class Subscription:
             retain_handling=retain_handling,
         )
 
-    def encode(self, buffer: bytearray) -> None:
+    def encode(self, buffer: bytearray, max_qos: QoS | None = None) -> None:
         encode_utf8(self.pattern, buffer)
-        options = self.max_qos | self.retain_handling << 4
+        options = (
+            max_qos if max_qos is not None else self.max_qos
+        ) | self.retain_handling << 4
         if self.no_local:
             options |= self.NO_LOCAL_FLAG
 
@@ -1208,6 +1210,7 @@ class MQTTSubscribePacket(MQTTPacket, PropertiesMixin):
 
     packet_id: int
     subscriptions: Sequence[Subscription]
+    max_qos: QoS | None = field(init=True, default=None)
 
     def __attrs_post_init__(self) -> None:
         if not self.subscriptions:
@@ -1248,7 +1251,7 @@ class MQTTSubscribePacket(MQTTPacket, PropertiesMixin):
 
         # Encode the payload
         for subscription in self.subscriptions:
-            subscription.encode(internal_buffer)
+            subscription.encode(internal_buffer, max_qos=self.max_qos)
 
         self.encode_fixed_header(self.expected_reserved_bits, internal_buffer, buffer)
 
