@@ -19,6 +19,7 @@ from ._types import (
     MQTTSubscribePacket,
     MQTTUnsubscribeAckPacket,
     MQTTUnsubscribePacket,
+    PropertyType,
     ReasonCode,
     Subscription,
 )
@@ -200,9 +201,11 @@ class MQTTBrokerClientStateMachine(BaseMQTTClientStateMachine):
         else:
             self._state = MQTTClientState.DISCONNECTED
 
-        MQTTConnAckPacket(
+        ack = MQTTConnAckPacket(
             reason_code=reason_code, session_present=session_present
-        ).encode(self._out_buffer)
+        )
+        ack.properties[PropertyType.SUBSCRIPTION_IDENTIFIER_AVAILABLE] = False
+        ack.encode(self._out_buffer)
 
     def acknowledge_subscribe(
         self, packet_id: int, reason_codes: Sequence[ReasonCode]
