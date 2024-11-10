@@ -460,16 +460,24 @@ class Subscription:
     )
     group_id: str | None = field(init=False, default=None)
     _parts: tuple[str, ...] = field(init=False, repr=False, eq=False)
+    _prefix: str | None = field(init=False, repr=False, eq=False)
+    _only_hash: bool = field(init=False, repr=False, eq=False, default=False)
 
     def __attrs_post_init__(self) -> None:
-        self._parts = tuple(self.pattern.split("/"))
-        for i, part in enumerate(self._parts):
-            if "+" in part and len(part) != 1:
-                # MQTT-4.7.1-2
-                raise InvalidPattern(
-                    "single-level wildcard ('+') must occupy an entire level of the "
-                    "topic filter"
-                )
+        parts = tuple(self.pattern.split("/"))
+        prefix: str | None = ""
+        n_chop = 0
+        for i, part in enumerate(parts):
+            if "+" in part:
+                if prefix:
+                    prefix += "/"
+                if len(part) != 1:
+                    # MQTT-4.7.1-2
+                    raise InvalidPattern(
+                        "single-level wildcard ('+') must occupy an entire level of the "
+                        "topic filter"
+                    )
+
             elif "#" in part:
                 if len(part) != 1:
                     # MQTT-4.7.1-1
@@ -477,16 +485,33 @@ class Subscription:
                         "multi-level wildcard ('#') must occupy an entire level of the "
                         "topic filter"
                     )
-                elif i != len(self._parts) - 1:
+                if i != len(parts) - 1:
                     # MQTT-4.7.1-1
                     raise InvalidPattern(
                         "multi-level wildcard ('#') must be the last character in the "
                         "topic filter"
                     )
+                if prefix is not None:
+                    self._only_hash = True
+            else:
+                if prefix is not None:
+                    n_chop += 1
+                    if prefix:
+                        prefix += "/"
+                    prefix += part
+                continue
+
+            if prefix is not None:
+                self._prefix = prefix
+                prefix = None
+
+        if prefix is not None:
+            self._prefix = None  # no wildcard
 
         # Save the group ID for a shared subscription
-        if len(self._parts) > 2 and self._parts[0] == "$share":
-            self.group_id = self._parts[1]
+        if len(parts) > 2 and parts[0] == "$share":
+            self.group_id = parts[1]
+        self._parts = parts[n_chop:]
 
     def __eq__(self, other: object) -> bool:
         if isinstance(other, Subscription):
@@ -533,13 +558,30 @@ class Subscription:
             not
 
         """
-        # Don't match if the message's QoS is higher than the accepted maximum in this
-        # subscription
-        if publish.qos > self.max_qos:
+        # Check that the topic filter matches the message's topic.
+
+        # No wildcards
+        if self._prefix is None:
+            return self.pattern == publish.topic
+
+        # Static prefix must be identical
+        if not publish.topic.startswith(self._prefix):
             return False
 
-        # Check that the topic filter matches the message's topic
-        topic_parts = publish.topic.split("/")
+        topic = publish.topic[len(self._prefix) :]
+        if self._only_hash:
+            # 'foo/bar/#' matches 'foo/bar' as well as 'foo/bar/baz'
+            # thus the prefix is 'foo/bar' and '._only_slash' is set
+            # so the remainder is either empty or starts with a slash
+            if self._prefix == "":
+                # or the pattern is a single '#', in which case we don't
+                # match '$foo'
+                return topic[0] != "$"
+            else:
+                return topic == "" or topic[0] == "/"
+
+        # Now for the complicated part
+        topic_parts = topic.split("/")
         for i, (pattern_part, topic_part) in enumerate(
             zip_longest(self._parts, topic_parts)
         ):
