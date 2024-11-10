@@ -38,6 +38,7 @@ class MQTTClientStateMachine(BaseMQTTClientStateMachine):
     )
     _ping_pending: bool = field(init=False, default=False)
     _may_retain: bool = field(init=False, default=True)
+    _may_subscription_id: bool = field(init=False, default=True)
     _maximum_qos: QoS = field(init=False, default=QoS.EXACTLY_ONCE)
     _subscriptions: dict[str, Subscription] = field(init=False, factory=dict)
     _subscription_counts: dict[str, int] = field(
@@ -52,6 +53,11 @@ class MQTTClientStateMachine(BaseMQTTClientStateMachine):
     def may_retain(self) -> bool:
         """Does the server support RETAINed messages?"""
         return self._may_retain
+
+    @property
+    def may_subscription_id(self) -> bool:
+        """Does the server support RETAINed messages?"""
+        return self._may_subscription_id
 
     def reset(self, session_present: bool) -> None:
         self._ping_pending = False
@@ -78,6 +84,12 @@ class MQTTClientStateMachine(BaseMQTTClientStateMachine):
                 )
                 self._may_retain = cast(
                     bool, packet.properties.get(PropertyType.RETAIN_AVAILABLE, True)
+                )
+                self._may_subscription_id = cast(
+                    bool,
+                    packet.properties.get(
+                        PropertyType.SUBSCRIPTION_IDENTIFIER_AVAILABLE, True
+                    ),
                 )
                 self._maximum_qos = cast(
                     QoS,
