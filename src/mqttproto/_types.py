@@ -30,7 +30,7 @@ if sys.version_info >= (3, 10):
 else:
     from typing_extensions import TypeAlias
 
-PropertyValue: TypeAlias = "str | bytes | int | tuple[str, str]"
+PropertyValue: TypeAlias = "str | bytes | int | tuple[str, str] | list[int]"
 
 VARIABLE_HEADER_START = b"\x00\x04MQTT\x05"
 
@@ -340,6 +340,10 @@ class PropertyType(IntEnum):
         raise MQTTDecodeError(f"unknown property type: 0x{value:02X}")
 
 
+# These properties may appear more than once
+multi_properties = frozenset((PropertyType.SUBSCRIPTION_IDENTIFIER,))
+
+
 @define(kw_only=True)
 class PropertiesMixin:
     allowed_property_types: ClassVar[frozenset[PropertyType]] = frozenset()
@@ -349,8 +353,13 @@ class PropertiesMixin:
     def encode_properties(self, buffer: bytearray) -> None:
         internal_buffer = bytearray()
         for identifier, value in self.properties.items():
-            encode_variable_integer(identifier, internal_buffer)
-            identifier.encoder(value, internal_buffer)
+            if identifier in multi_properties and isinstance(value, (list, tuple)):
+                for val in value:
+                    encode_variable_integer(identifier, internal_buffer)
+                    identifier.encoder(val, internal_buffer)
+            else:
+                encode_variable_integer(identifier, internal_buffer)
+                identifier.encoder(value, internal_buffer)
 
         for key, value in self.user_properties.items():
             encode_variable_integer(PropertyType.USER_PROPERTY, internal_buffer)
@@ -380,6 +389,10 @@ class PropertiesMixin:
             if property_type is PropertyType.USER_PROPERTY:
                 key, value = cast("tuple[str, str]", value)
                 user_properties[key] = value
+            elif property_type in multi_properties:
+                if property_type not in properties:
+                    properties[property_type] = []
+                cast("list[int]", properties[property_type]).append(cast(int, value))
             else:
                 if property_type in properties:
                     raise MQTTDecodeError(

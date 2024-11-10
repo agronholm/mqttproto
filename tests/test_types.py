@@ -358,7 +358,7 @@ class TestMQTTPublishPacket:
             PropertyType.CONTENT_TYPE: "application/json",
             PropertyType.RESPONSE_TOPIC: "res/pon/se",
             PropertyType.CORRELATION_DATA: b"random",
-            PropertyType.SUBSCRIPTION_IDENTIFIER: 268_435_455,
+            PropertyType.SUBSCRIPTION_IDENTIFIER: [268_435_455],
             PropertyType.TOPIC_ALIAS: 65535,
         }
         user_properties = {"foo": "bar", "key2": "value2"}
@@ -607,7 +607,7 @@ class TestMQTTSubscribePacket:
             ),
         ]
         properties: dict[PropertyType, PropertyValue] = {
-            PropertyType.SUBSCRIPTION_IDENTIFIER: 268_435_455,
+            PropertyType.SUBSCRIPTION_IDENTIFIER: [268_435_455],
         }
         user_properties = {"foo": "bar", "key2": "value2"}
         packet = MQTTSubscribePacket(
