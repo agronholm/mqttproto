@@ -556,6 +556,7 @@ class AsyncMQTTClient:
     def _new_subscr_id(self) -> int:
         if not self.may_subscription_id:
             return 0
+
         sid = self._last_subscr_id
         while True:
             sid += 1
@@ -567,8 +568,10 @@ class AsyncMQTTClient:
                 and len(self._subscription_ids) < self._last_subscr_id / 5
             ):
                 sid = 1
+
             if sid in self._subscription_ids:
                 continue
+
             self._last_subscr_id = sid
             return sid
 
@@ -657,10 +660,12 @@ class AsyncMQTTClient:
                             raise ValueError(
                                 f"Conflicting 'retain_as_published' option for {pattern}"
                             )
+
                         if retain_handling == RetainHandling.SEND_RETAINED:
                             raise ValueError(
                                 f"Already subscribed: cannot get retained messages for {pattern}"
                             )
+
                         if subscr.max_qos >= maximum_qos:
                             # nothing to do
                             continue

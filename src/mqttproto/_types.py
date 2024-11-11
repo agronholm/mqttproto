@@ -472,6 +472,7 @@ class Subscription:
             if "+" in part:
                 if prefix:
                     prefix += "/"
+
                 if len(part) != 1:
                     # MQTT-4.7.1-2
                     raise InvalidPattern(
@@ -486,12 +487,14 @@ class Subscription:
                         "multi-level wildcard ('#') must occupy an entire level of the "
                         "topic filter"
                     )
+
                 if i != len(parts) - 1:
                     # MQTT-4.7.1-1
                     raise InvalidPattern(
                         "multi-level wildcard ('#') must be the last character in the "
                         "topic filter"
                     )
+
                 if prefix is not None:
                     self._only_hash = True
             else:
@@ -499,7 +502,9 @@ class Subscription:
                     n_chop += 1
                     if prefix:
                         prefix += "/"
+
                     prefix += part
+
                 continue
 
             if prefix is not None:
@@ -512,6 +517,7 @@ class Subscription:
         # Save the group ID for a shared subscription
         if len(parts) > 2 and parts[0] == "$share":
             self.group_id = parts[1]
+
         self._parts = parts[n_chop:]
 
     def __eq__(self, other: object) -> bool:
@@ -1233,6 +1239,7 @@ class MQTTSubscribePacket(MQTTPacket, PropertiesMixin):
             )
             if subscr_id:
                 subscription.subscription_id = subscr_id[0]
+
             subscriptions.append(subscription)
 
         return data, MQTTSubscribePacket(
