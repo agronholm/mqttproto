@@ -52,7 +52,7 @@ class MQTTClientStateMachine(BaseMQTTClientStateMachine):
 
     @property
     def may_subscription_id(self) -> bool:
-        """Does the server support RETAINed messages?"""
+        """Does the server support subscription IDs?"""
         return self._may_subscription_id
 
     def reset(self, session_present: bool) -> None:
