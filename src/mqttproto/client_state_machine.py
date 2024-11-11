@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections import defaultdict
 from collections.abc import Sequence
 from typing import cast
 from uuid import uuid4
@@ -9,6 +8,7 @@ from attr.validators import instance_of
 from attrs import define, field
 
 from ._base_client_state_machine import BaseMQTTClientStateMachine, MQTTClientState
+from ._exceptions import MQTTProtocolError
 from ._types import (
     MQTTConnAckPacket,
     MQTTConnectPacket,
@@ -38,11 +38,8 @@ class MQTTClientStateMachine(BaseMQTTClientStateMachine):
     )
     _ping_pending: bool = field(init=False, default=False)
     _may_retain: bool = field(init=False, default=True)
+    _may_subscription_id: bool = field(init=False, default=True)
     _maximum_qos: QoS = field(init=False, default=QoS.EXACTLY_ONCE)
-    _subscriptions: dict[str, Subscription] = field(init=False, factory=dict)
-    _subscription_counts: dict[str, int] = field(
-        init=False, factory=lambda: defaultdict(lambda: 0)
-    )
 
     def __init__(self, client_id: str | None = None):
         self.__attrs_init__(client_id=client_id or f"mqttproto-{uuid4().hex}")
@@ -52,6 +49,11 @@ class MQTTClientStateMachine(BaseMQTTClientStateMachine):
     def may_retain(self) -> bool:
         """Does the server support RETAINed messages?"""
         return self._may_retain
+
+    @property
+    def may_subscription_id(self) -> bool:
+        """Does the server support subscription IDs?"""
+        return self._may_subscription_id
 
     def reset(self, session_present: bool) -> None:
         self._ping_pending = False
@@ -63,7 +65,6 @@ class MQTTClientStateMachine(BaseMQTTClientStateMachine):
             }
         else:
             self._next_packet_id = 1
-            self._subscriptions.clear()
 
     def _handle_packet(self, packet: MQTTPacket) -> bool:
         if super()._handle_packet(packet):
@@ -78,6 +79,12 @@ class MQTTClientStateMachine(BaseMQTTClientStateMachine):
                 )
                 self._may_retain = cast(
                     bool, packet.properties.get(PropertyType.RETAIN_AVAILABLE, True)
+                )
+                self._may_subscription_id = cast(
+                    bool,
+                    packet.properties.get(
+                        PropertyType.SUBSCRIPTION_IDENTIFIER_AVAILABLE, True
+                    ),
                 )
                 self._maximum_qos = cast(
                     QoS,
@@ -186,34 +193,44 @@ class MQTTClientStateMachine(BaseMQTTClientStateMachine):
         """
         return self._maximum_qos
 
-    def subscribe(self, subscriptions: Sequence[Subscription]) -> int | None:
+    def subscribe(
+        self, subscriptions: Sequence[Subscription], max_qos: QoS | None = None
+    ) -> int:
         """
         Subscribe to one or more topic patterns.
 
-        If any of the given subscription was
         Send a ``SUBSCRIBE`` request, containing one of more subscriptions.
 
+        All included subscriptions need to use the same subscription ID.
+
         :param subscriptions: a sequence of subscriptions
-        :return: packet ID of the ``SUBSCRIBE`` request, or ``None`` if a request did
-            not need to be sent
+        :param max_qos: the maximum QoS to request. Leave as `None` to use the
+            subscription's value.
+        :return: packet ID of the ``SUBSCRIBE`` request.
 
+        When changing a subscription's QoS, pass the new max_qos value.
+        Update the subscription record after the operation was successful.
         """
-        self._out_require_state(MQTTClientState.CONNECTED)
-        new_subscriptions: list[Subscription] = []
-        for sub in subscriptions:
-            if sub.pattern in self._subscriptions:
-                self._subscription_counts[sub.pattern] += 1
-            else:
-                self._subscription_counts[sub.pattern] = 1
-                new_subscriptions.append(sub)
-                self._subscriptions[sub.pattern] = sub
+        subscr_id: int | None = None
 
-        if not new_subscriptions:
-            return None
+        # TODO remember the subscription for reconnect if not
+        self._out_require_state(MQTTClientState.CONNECTED)
+
+        for sub in subscriptions:
+            # If all subscriptions use a common ID, collect and use that.
+            # Otherwise don't.
+            if subscr_id is None:
+                subscr_id = sub.subscription_id
+            elif subscr_id != sub.subscription_id:
+                raise ValueError("Inconsistent subscription IDs")
 
         packet = MQTTSubscribePacket(
-            subscriptions=new_subscriptions, packet_id=self._generate_packet_id()
+            subscriptions=subscriptions,
+            packet_id=self._generate_packet_id(),
+            max_qos=max_qos,
         )
+        if subscr_id and self.may_subscription_id:
+            packet.properties[PropertyType.SUBSCRIPTION_IDENTIFIER] = subscr_id
         packet.encode(self._out_buffer)
         self._add_pending_packet(packet)
         return packet.packet_id
@@ -222,29 +239,19 @@ class MQTTClientStateMachine(BaseMQTTClientStateMachine):
         """
         Unsubscribe from one or more topic patterns.
 
-        If the internal subscription for any of the given patterns goes down to 0, an
-        ``UNSUBSCRIBE`` request is sent for those patterns.
+        Send an ``UNSUBSCRIBE`` request, containing one of more subscriptions.
 
         :param patterns: topic patterns to unsubscribe from
-        :return: packet ID of the ``UNSUBSCRIBE`` request, or ``None`` if a request did
-            not need to be sent
-
+        :return: packet ID of the ``UNSUBSCRIBE`` request
         """
-        self._out_require_state(MQTTClientState.CONNECTED)
-        patterns_to_remove: list[str] = []
-        for pattern in patterns:
-            if self._subscription_counts.get(pattern, 0) == 1:
-                del self._subscription_counts[pattern]
-                del self._subscriptions[pattern]
-                patterns_to_remove.append(pattern)
-            else:
-                self._subscription_counts[pattern] -= 1
-
-        if not patterns_to_remove:
+        try:
+            self._out_require_state(MQTTClientState.CONNECTED)
+        except MQTTProtocolError:
             return None
+            # TODO remember the unsubscription for reconnect
 
         packet = MQTTUnsubscribePacket(
-            patterns=patterns_to_remove, packet_id=self._generate_packet_id()
+            patterns=patterns, packet_id=self._generate_packet_id()
         )
         packet.encode(self._out_buffer)
         self._add_pending_packet(packet)

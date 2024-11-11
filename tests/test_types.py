@@ -195,12 +195,6 @@ class TestSubscription:
         publish = MQTTPublishPacket(topic="foo/bar", payload="")
         assert not Subscription(pattern).matches(publish)
 
-    def test_higher_than_max_qos(self) -> None:
-        publish = MQTTPublishPacket(
-            topic="foo/bar", payload="", qos=QoS.AT_LEAST_ONCE, packet_id=1
-        )
-        assert not Subscription("foo/bar", max_qos=QoS.AT_MOST_ONCE).matches(publish)
-
     def test_single_level_wildcard_not_alone(self) -> None:
         with pytest.raises(
             InvalidPattern,
@@ -358,7 +352,7 @@ class TestMQTTPublishPacket:
             PropertyType.CONTENT_TYPE: "application/json",
             PropertyType.RESPONSE_TOPIC: "res/pon/se",
             PropertyType.CORRELATION_DATA: b"random",
-            PropertyType.SUBSCRIPTION_IDENTIFIER: 268_435_455,
+            PropertyType.SUBSCRIPTION_IDENTIFIER: [268_435_455],
             PropertyType.TOPIC_ALIAS: 65535,
         }
         user_properties = {"foo": "bar", "key2": "value2"}
@@ -607,7 +601,7 @@ class TestMQTTSubscribePacket:
             ),
         ]
         properties: dict[PropertyType, PropertyValue] = {
-            PropertyType.SUBSCRIPTION_IDENTIFIER: 268_435_455,
+            PropertyType.SUBSCRIPTION_IDENTIFIER: [268_435_455],
         }
         user_properties = {"foo": "bar", "key2": "value2"}
         packet = MQTTSubscribePacket(

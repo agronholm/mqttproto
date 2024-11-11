@@ -103,6 +103,10 @@ fine too:
     hurts code readability, try using :class:`~contextlib.AsyncExitStack` to manage the
     context managers.
 
+While the MQTT protocol doesn't support multiple subscriptions to the same
+topic pattern, :meth:`~.AsyncMQTTClient.subscribe` hides that from you —
+albeit with some restrictions.
+
 .. seealso:: :meth:`~.AsyncMQTTClient.subscribe`
 
 Publishing messages
