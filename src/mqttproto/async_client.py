@@ -346,7 +346,7 @@ class AsyncMQTTClient:
                 # Perform the MQTT handshake (send conn + receive connack)
                 await self._do_handshake()
 
-                if self.keep_alive:
+                if self.keep_alive or self._state_machine.keep_alive:
                     self._keepalive_task = await task_group.start(
                         self._send_keepalive,
                     )
@@ -357,14 +357,19 @@ class AsyncMQTTClient:
                     task_status_sent = True
 
     async def _send_keepalive(self, *, task_status: TaskStatus[CancelScope]) -> Never:
+        keep_alive = self.keep_alive
+        if not keep_alive:
+            keep_alive = self._state_machine.keep_alive
+        elif self._state_machine.keep_alive:
+            keep_alive = min(keep_alive, self._state_machine.keep_alive)
         with CancelScope() as sc:
             self._did_send = Event()
             task_status.started(sc)
             while True:
                 # avoid unnecessary churn when there's sufficient traffic
-                await sleep(self.keep_alive / 2)
+                await sleep(keep_alive / 2)
                 try:
-                    with fail_after(self.keep_alive / 2):
+                    with fail_after(keep_alive / 2):
                         await self._did_send.wait()
                 except TimeoutError:
                     if self._state_machine.pings_pending > 2:
