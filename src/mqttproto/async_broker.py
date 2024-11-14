@@ -317,10 +317,11 @@ class AsyncMQTTBroker:
 
         return ReasonCode.SUCCESS
 
-    async def serve(self) -> None:
+    async def serve(self, *, task_status=anyio.TASK_STATUS_IGNORED) -> None:
         listener: Listener[Any]
         if isinstance(self.bind_address, (str, bytes, PathLike)):
             listener = await create_unix_listener(self.bind_address)
+            port = -1
         else:
             host, port = self.bind_address  # TODO: this is problematic for IPv6
             listener = await create_tcp_listener(local_host=host, local_port=port)
@@ -332,6 +333,10 @@ class AsyncMQTTBroker:
             logger.info(
                 "Broker listening on %s", listener.extra(SocketAttribute.local_address)
             )
+            if port == 0:
+                port = listener.extra(SocketAttribute.local_port)
+
+            task_status.started(port)
             await listener.serve(self.serve_client)
 
 
