@@ -20,6 +20,8 @@ from attrs import define, field
 from mqttproto import (
     MQTTDisconnectPacket,
     MQTTPublishPacket,
+    MQTTSubscribePacket,
+    MQTTUnsubscribePacket,
 )
 from mqttproto._base_client_state_machine import MQTTClientState
 from mqttproto._types import (
@@ -153,14 +155,19 @@ class AsyncMQTTBroker:
         """
         async with stream:
             session = AsyncMQTTClientSession(stream=stream)
+            added = False
             async for chunk in stream:
                 for packet in session.state_machine.feed_bytes(chunk):
-                    await self.handle_packet(
-                        packet, session.state_machine, session.stream
-                    )
+                    await self.handle_packet(packet, session, session.stream)
 
                 if session.state_machine.state is MQTTClientState.DISCONNECTED:
                     return
+                elif (
+                    not added
+                    and session.state_machine.state is MQTTClientState.CONNECTED
+                ):
+                    added = True
+                    self.add_client_session(session)
 
                 await session.flush_outbound_data()
 
@@ -168,11 +175,12 @@ class AsyncMQTTBroker:
                 self._state_machine.client_disconnected(
                     session.state_machine.client_id, None
                 )
+            self.remove_client_session(session)
 
     async def handle_packet(
         self,
         packet: MQTTPacket,
-        client_state_machine: MQTTBrokerClientStateMachine,
+        session: AsyncMQTTClientSession,
         stream: ByteStream,
     ) -> None:
         """
@@ -184,6 +192,8 @@ class AsyncMQTTBroker:
         :param stream: the client's transport stream
 
         """
+        client_state_machine = session.state_machine
+
         if isinstance(packet, MQTTPublishPacket):
             reason_code = await self._authorize_publish(
                 packet, client_state_machine, stream
@@ -193,24 +203,63 @@ class AsyncMQTTBroker:
 
             if reason_code is ReasonCode.SUCCESS:
                 async with create_task_group() as tg:
-                    for client_session in [
-                        self._client_sessions[client_id]
-                        for client_id in self._state_machine.publish(
-                            client_state_machine.client_id, packet
-                        )
-                    ]:
-                        tg.start_soon(client_session.flush_outbound_data)
+                    for client_id in self._state_machine.publish(
+                        client_state_machine.client_id, packet
+                    ):
+                        client_session = self._client_sessions.get(client_id)
+                        if client_session:
+                            tg.start_soon(client_session.flush_outbound_data)
         elif isinstance(packet, MQTTConnectPacket):
             reason_code = await self._authorize_connect(packet, stream)
             self._state_machine.acknowledge_connect(
                 client_state_machine, packet, reason_code
             )
-            self._state_machine.add_client_session(client_state_machine)
         elif isinstance(packet, MQTTDisconnectPacket):
             if client_state_machine.state is MQTTClientState.CONNECTED:
                 self._state_machine.client_disconnected(
                     client_state_machine.client_id, packet
                 )
+        elif isinstance(packet, MQTTSubscribePacket):
+            if client_state_machine.state is MQTTClientState.CONNECTED:
+                reason_codes: list[ReasonCode] = []
+                for subscr in packet.subscriptions:
+                    reason_codes.append(
+                        await self._authorize_subscribe(
+                            subscr.pattern, client_state_machine, stream
+                        )
+                    )
+
+                if packet.packet_id is not None:
+                    client_state_machine.acknowledge_subscribe(
+                        packet.packet_id, reason_codes
+                    )
+
+                # Ack queued: we can actually process the subscriptions
+                for subscr, res in zip(packet.subscriptions, reason_codes):
+                    if res <= ReasonCode.GRANTED_QOS_2:
+                        self._state_machine.subscribe_session_to(
+                            client_state_machine, subscr
+                        )
+
+        elif isinstance(packet, MQTTUnsubscribePacket):
+            if client_state_machine.state is MQTTClientState.CONNECTED:
+                reason_codes: list[ReasonCode] = []
+                for pattern in packet.patterns:
+                    rc = (
+                        ReasonCode.SUCCESS
+                        if self._state_machine.unsubscribe_session_from(
+                            client_state_machine, pattern
+                        )
+                        else ReasonCode.NO_SUBSCRIPTION_EXISTED
+                    )
+                    reason_codes.append(rc)
+
+                if packet.packet_id is not None:
+                    client_state_machine.acknowledge_unsubscribe(
+                        packet.packet_id, reason_codes
+                    )
+        else:
+            raise RuntimeError(f"Unhandled packet: {packet !r}")
 
     def add_client_session(self, session: AsyncMQTTClientSession) -> None:
         self._state_machine.add_client_session(session.state_machine)
