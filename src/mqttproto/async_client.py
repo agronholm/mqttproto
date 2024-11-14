@@ -267,6 +267,7 @@ class AsyncMQTTClient:
     _stream_lock: Lock = field(init=False, factory=Lock)
     _pending_connect: MQTTConnectOperation | None = field(init=False, default=None)
     _pending_operations: dict[int, MQTTOperation[Any]] = field(init=False, factory=dict)
+    _ignored_exc_classes: tuple[type[Exception]] = field(init=False, default=tuple)
     __ctx: Any = field(init=False, default=None)
 
     def __attrs_post_init__(self) -> None:
@@ -328,14 +329,12 @@ class AsyncMQTTClient:
                 cm = self._connect_mqtt()
 
             async with AsyncExitStack() as exit_stack:
-                stream, ignored_exc_classes = await exit_stack.enter_async_context(cm)
+                stream, self._ignored_exc_classes = await exit_stack.enter_async_context(cm)
                 self._stream = stream
 
                 # Start handling inbound packets
                 task_group = await exit_stack.enter_async_context(create_task_group())
-                task_group.start_soon(
-                    self._read_inbound_packets, stream, ignored_exc_classes
-                )
+                task_group.start_soon(self._read_inbound_packets, stream)
 
                 # Perform the MQTT handshake (send conn + receive connack)
                 await self._do_handshake()
@@ -361,9 +360,7 @@ class AsyncMQTTClient:
             assert isinstance(client_id, str)
             self.client_id = client_id
 
-    async def _read_inbound_packets(
-        self, stream: ByteReceiveStream, exception_classes: tuple[type[Exception]]
-    ) -> None:
+    async def _read_inbound_packets(self, stream: ByteReceiveStream) -> None:
         # Receives packets from the transport stream and forwards them to interested
         # listeners
         try:
@@ -375,7 +372,7 @@ class AsyncMQTTClient:
                 # Send any received publications to subscriptions that want them
                 for packet in received_packets:
                     await self._handle_packet(packet)
-        except exception_classes:
+        except self._ignored_exc_classes:
             pass
 
     async def _handle_packet(self, packet: MQTTPacket) -> None:
@@ -412,6 +409,7 @@ class AsyncMQTTClient:
         stream: ByteStream
         assert self.host_or_path
         ssl_context = self.ssl if isinstance(self.ssl, SSLContext) else None
+
         async for attempt in stamina.retry_context(on=(OSError, SSLError)):
             with attempt:
                 if self.transport == "unix":
@@ -458,8 +456,12 @@ class AsyncMQTTClient:
     async def _flush_outbound_data(self) -> None:
         async with self._stream_lock:
             if data := self._state_machine.get_outbound_data():
-                await self._stream.send(data)
-                logger.debug("Sent bytes to transport stream: %r", data)
+                try:
+                    await self._stream.send(data)
+                except self._ignored_exc.classes as exc:
+                    logger.debug("Skip bytes to transport stream: %r: %r", data, exc)
+                else:
+                    logger.debug("Sent bytes to transport stream: %r", data)
 
     async def _run_operation(self, operation: MQTTOperation[Any]) -> None:
         with ExitStack() as exit_stack:
