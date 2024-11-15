@@ -295,9 +295,8 @@ class BaseMQTTClientStateMachine:
             received_packets.append(packet)
 
         cutoff_offset = len(self._in_buffer) - len(view)
-        view.release()
         if cutoff_offset:
-            del self._in_buffer[:cutoff_offset]
+            self._in_buffer = self._in_buffer[cutoff_offset:]
 
         return received_packets
 
