@@ -548,6 +548,7 @@ class AsyncMQTTClient:
         *,
         qos: QoS = QoS.AT_MOST_ONCE,
         retain: bool = False,
+        user_properties: dict[str, str] | None = None,
     ) -> None:
         """
         Publish a message to the given topic.
@@ -560,7 +561,9 @@ class AsyncMQTTClient:
             before the subscription happened
 
         """
-        packet_id = self._state_machine.publish(topic, payload, qos=qos, retain=retain)
+        packet_id = self._state_machine.publish(
+            topic, payload, qos=qos, retain=retain, user_properties=user_properties
+        )
         if qos is QoS.EXACTLY_ONCE:
             assert packet_id is not None
             await self._run_operation(MQTTQoS2PublishOperation(packet_id))
