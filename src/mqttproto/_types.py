@@ -516,7 +516,7 @@ class Subscription:
     RETAIN_AS_PUBLISHED_FLAG = 8
     RETAIN_HANDLING_MASK = 48
 
-    pattern: str | Pattern
+    pattern: Pattern
     max_qos: QoS = field(kw_only=True, default=QoS.EXACTLY_ONCE)
     no_local: bool = field(kw_only=True, default=False)
     retain_as_published: bool = field(kw_only=True, default=True)
@@ -539,7 +539,7 @@ class Subscription:
         return hash(self.pattern)
 
     @property
-    def group_id(self):
+    def group_id(self) -> str | None:
         return self.pattern.group_id
 
     @classmethod
@@ -551,7 +551,7 @@ class Subscription:
         retain_as_published = bool(options & cls.RETAIN_AS_PUBLISHED_FLAG)
         retain_handling = RetainHandling.get((options & cls.RETAIN_HANDLING_MASK) >> 4)
         return data, Subscription(
-            pattern=pattern,
+            pattern=Pattern(pattern),
             max_qos=qos,
             no_local=no_local,
             retain_as_published=retain_as_published,

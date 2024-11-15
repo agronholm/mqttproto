@@ -1,0 +1,28 @@
+Source: mqttproto
+Maintainer: "Matthias Urlichs" <matthias@urlichs.de>
+Section: python
+Priority: optional
+Build-Depends: dh-python, python3-setuptools, python3-all, debhelper (>= 13),
+  python3-setuptools (>= 64),
+  python3-setuptools-scm (>= 6.4),
+Standards-Version: 3.9.6
+Homepage: https://github.com/agronholm/mqttproto
+
+Package: python3-mqttproto
+Architecture: all
+Depends: ${misc:Depends}, ${python3:Depends},
+  python3-anyio (>= 4.4),
+  python3-attr (>= 23.2.0),
+  python3-stamina (>= 24.2.0),
+Description: Sans-io MQTT v5 client/broker with an AnyIO based I/O implementation
+  .. image:: https://github.com/agronholm/mqttproto/actions/workflows/test.yml/badge.svg
+    :target: https://github.com/agronholm/mqttproto/actions/workflows/test.yml
+    :alt: Build Status
+  .. image:: https://coveralls.io/repos/github/agronholm/mqttproto/badge.svg?branch=main
+    :target: https://coveralls.io/github/agronholm/mqttproto?branch=main
+    :alt: Code Coverage
+  .. image:: https://readthedocs.org/projects/mqttproto/badge/?version=latest
+    :target: https://mqttproto.readthedocs.io/en/latest/?badge=latest
+    :alt: Documentation
+  .
+
