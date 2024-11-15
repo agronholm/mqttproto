@@ -87,13 +87,16 @@ class BrokerTest:
     "qos_pub", [QoS.AT_MOST_ONCE, QoS.AT_LEAST_ONCE, QoS.EXACTLY_ONCE]
 )
 async def test_publish_subscribe(qos_sub: QoS, qos_pub: QoS) -> None:
+    qos_info = f"{qos_sub}-{qos_pub}"
     async with BrokerTest() as broker:
         client = await broker.client()
         if qos_pub > client.maximum_qos:
             return  # TODO add pytest.skip
 
         async with client.subscribe("test/+", maximum_qos=qos_sub) as messages:
-            await client.publish("test/text", "test åäö", qos=qos_pub)
+            await client.publish(
+                "test/text", "test åäö", qos=qos_pub, user_properties={"test": qos_info}
+            )
             await client.publish("test/binary", b"\x00\xff\x00\x1f", qos=qos_pub)
             packets: list[MQTTPublishPacket] = []
             async for packet in messages:
@@ -104,6 +107,8 @@ async def test_publish_subscribe(qos_sub: QoS, qos_pub: QoS) -> None:
             assert packets[0].topic == "test/text"
             assert packets[0].payload == "test åäö"
             assert packets[0].qos == min(qos_sub, qos_pub)
+            assert packets[0].user_properties == {"test": qos_info}
             assert packets[1].topic == "test/binary"
             assert packets[1].payload == b"\x00\xff\x00\x1f"
             assert packets[1].qos == min(qos_sub, qos_pub)
+            assert packets[1].user_properties == {}
