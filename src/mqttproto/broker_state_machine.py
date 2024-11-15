@@ -19,6 +19,7 @@ from ._types import (
     MQTTSubscribePacket,
     MQTTUnsubscribeAckPacket,
     MQTTUnsubscribePacket,
+    QoS,
     ReasonCode,
     Subscription,
 )
@@ -142,7 +143,13 @@ class MQTTBrokerStateMachine:
                 for client_id, subscr in clients.items():
                     client = self.client_state_machines.get(client_id)
                     if not subscr.no_local or source_client_id != client_id:
-                        client.deliver_publish(source_client_id, packet)
+                        client.deliver_publish(
+                            topic=packet.topic,
+                            payload=packet.payload,
+                            retain=packet.retain,
+                            qos=min(packet.qos,subscr.max_qos),
+                            user_properties=packet.user_properties,
+                            )
                         recipients.add(client.client_id)
 
         return recipients
@@ -197,16 +204,35 @@ class MQTTBrokerClientStateMachine(BaseMQTTClientStateMachine):
 
         return True
 
-    def deliver_publish(self, source_client_id: str, packet: MQTTPublishPacket) -> None:
+    def deliver_publish(self,
+        topic: str,
+        payload: str | bytes,
+        *,
+        qos: QoS = QoS.AT_MOST_ONCE,
+        retain: bool = False,
+        user_properties: dict[str,str]|None = None,
+    ) -> int | None:
         """
         Deliver a ``PUBLISH`` message to this client if the current state allows it.
-
-        :param source_client_id: ID of the client that sent the message
-        :param packet: the ``PUBLISH`` packet sent by the client
+        
+        :param topic: topic to publish the message on
+        :param payload: the actual message to publish
+        :param qos:
+        :param retain: ``True`` to send the message to any future subscribers of the
+            topic too
+        :return: the packet ID if ``qos`` was higher than 0
         """
         self._out_require_state(MQTTClientState.CONNECTED)
+        packet_id = self._generate_packet_id() if qos > QoS.AT_MOST_ONCE else None
+        packet = MQTTPublishPacket(
+            topic=topic, payload=payload, qos=qos, retain=retain, packet_id=packet_id,
+            user_properties=user_properties,
+        )
         packet.encode(self._out_buffer)
-        self._add_pending_packet(packet)
+        if packet.packet_id is not None:
+            self._add_pending_packet(packet)
+
+        return packet.packet_id
 
     def acknowledge_connect(
         self, reason_code: ReasonCode, username: str | None, session_present: bool
