@@ -258,8 +258,7 @@ class AsyncMQTTBroker:
                     client_state_machine.acknowledge_unsubscribe(
                         packet.packet_id, reason_codes
                     )
-        else:
-            raise RuntimeError(f"Unhandled packet: {packet !r}")
+
 
     def add_client_session(self, session: AsyncMQTTClientSession) -> None:
         self._state_machine.add_client_session(session.state_machine)
