@@ -4,15 +4,14 @@ import sys
 from contextlib import asynccontextmanager
 
 import pytest
-
-from anyio import create_task_group, Event
+from anyio import Event, create_task_group
 
 from mqttproto import MQTTPublishPacket, QoS
 from mqttproto.async_broker import AsyncMQTTBroker
 from mqttproto.async_client import AsyncMQTTClient
 
 if sys.version_info < (3, 11):
-    from exceptiongroup import BaseExceptionGroup
+    pass
 
 pytestmark = [pytest.mark.anyio, pytest.mark.network]
 
@@ -86,4 +85,3 @@ async def test_publish_subscribe(qos_sub: QoS, qos_pub: QoS) -> None:
             assert packets[1].topic == "test/binary"
             assert packets[1].payload == b"\x00\xff\x00\x1f"
             assert packets[1].qos == min(qos_sub, qos_pub)
-

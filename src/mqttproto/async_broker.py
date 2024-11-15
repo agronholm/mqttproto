@@ -259,7 +259,6 @@ class AsyncMQTTBroker:
                         packet.packet_id, reason_codes
                     )
 
-
     def add_client_session(self, session: AsyncMQTTClientSession) -> None:
         self._state_machine.add_client_session(session.state_machine)
         self._client_sessions[session.state_machine.client_id] = session

@@ -329,7 +329,10 @@ class AsyncMQTTClient:
                 cm = self._connect_mqtt()
 
             async with AsyncExitStack() as exit_stack:
-                stream, self._ignored_exc_classes = await exit_stack.enter_async_context(cm)
+                (
+                    stream,
+                    self._ignored_exc_classes,
+                ) = await exit_stack.enter_async_context(cm)
                 self._stream = stream
 
                 # Start handling inbound packets

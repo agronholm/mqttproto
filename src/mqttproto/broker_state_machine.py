@@ -19,6 +19,7 @@ from ._types import (
     MQTTSubscribePacket,
     MQTTUnsubscribeAckPacket,
     MQTTUnsubscribePacket,
+    Pattern,
     QoS,
     ReasonCode,
     Subscription,
@@ -147,19 +148,12 @@ class MQTTBrokerStateMachine:
                             topic=packet.topic,
                             payload=packet.payload,
                             retain=packet.retain,
-                            qos=min(packet.qos,subscr.max_qos),
+                            qos=min(packet.qos, subscr.max_qos),
                             user_properties=packet.user_properties,
-                            )
+                        )
                         recipients.add(client.client_id)
 
         return recipients
-
-    def subscribe(self, client_id: str, packet: MQTTSubscribePacket) -> None:
-        """Add a new subscription from the given client."""
-        for subscr in packet.subscriptions:
-            if subscription := self.shared_subscriptions.get(subscr.pattern) is None:
-                subscription = subscr
-        pass  # subscribe
 
 
 @define
@@ -204,17 +198,18 @@ class MQTTBrokerClientStateMachine(BaseMQTTClientStateMachine):
 
         return True
 
-    def deliver_publish(self,
+    def deliver_publish(
+        self,
         topic: str,
         payload: str | bytes,
         *,
         qos: QoS = QoS.AT_MOST_ONCE,
         retain: bool = False,
-        user_properties: dict[str,str]|None = None,
+        user_properties: dict[str, str] | None = None,
     ) -> int | None:
         """
         Deliver a ``PUBLISH`` message to this client if the current state allows it.
-        
+
         :param topic: topic to publish the message on
         :param payload: the actual message to publish
         :param qos:
@@ -225,7 +220,11 @@ class MQTTBrokerClientStateMachine(BaseMQTTClientStateMachine):
         self._out_require_state(MQTTClientState.CONNECTED)
         packet_id = self._generate_packet_id() if qos > QoS.AT_MOST_ONCE else None
         packet = MQTTPublishPacket(
-            topic=topic, payload=payload, qos=qos, retain=retain, packet_id=packet_id,
+            topic=topic,
+            payload=payload,
+            qos=qos,
+            retain=retain,
+            packet_id=packet_id,
             user_properties=user_properties,
         )
         packet.encode(self._out_buffer)
