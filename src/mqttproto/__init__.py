@@ -27,6 +27,7 @@ from ._types import MQTTSubscribeAckPacket as MQTTSubscribeAckPacket
 from ._types import MQTTSubscribePacket as MQTTSubscribePacket
 from ._types import MQTTUnsubscribeAckPacket as MQTTUnsubscribeAckPacket
 from ._types import MQTTUnsubscribePacket as MQTTUnsubscribePacket
+from ._types import Pattern as Pattern
 from ._types import PropertyType as PropertyType
 from ._types import QoS as QoS
 from ._types import ReasonCode as ReasonCode

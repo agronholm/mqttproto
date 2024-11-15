@@ -30,7 +30,7 @@ if sys.version_info >= (3, 10):
 else:
     from typing_extensions import TypeAlias
 
-PropertyValue: TypeAlias = "str | bytes | int | tuple[str, str]"
+PropertyValue: TypeAlias = "str | bytes | int | tuple[str, str] | list[int]"
 
 VARIABLE_HEADER_START = b"\x00\x04MQTT\x05"
 
@@ -340,6 +340,10 @@ class PropertyType(IntEnum):
         raise MQTTDecodeError(f"unknown property type: 0x{value:02X}")
 
 
+# These properties may appear more than once
+multi_properties = frozenset((PropertyType.SUBSCRIPTION_IDENTIFIER,))
+
+
 @define(kw_only=True)
 class PropertiesMixin:
     allowed_property_types: ClassVar[frozenset[PropertyType]] = frozenset()
@@ -349,8 +353,13 @@ class PropertiesMixin:
     def encode_properties(self, buffer: bytearray) -> None:
         internal_buffer = bytearray()
         for identifier, value in self.properties.items():
-            encode_variable_integer(identifier, internal_buffer)
-            identifier.encoder(value, internal_buffer)
+            if identifier in multi_properties and isinstance(value, (list, tuple)):
+                for val in value:
+                    encode_variable_integer(identifier, internal_buffer)
+                    identifier.encoder(val, internal_buffer)
+            else:
+                encode_variable_integer(identifier, internal_buffer)
+                identifier.encoder(value, internal_buffer)
 
         for key, value in self.user_properties.items():
             encode_variable_integer(PropertyType.USER_PROPERTY, internal_buffer)
@@ -380,6 +389,10 @@ class PropertiesMixin:
             if property_type is PropertyType.USER_PROPERTY:
                 key, value = cast("tuple[str, str]", value)
                 user_properties[key] = value
+            elif property_type in multi_properties:
+                if property_type not in properties:
+                    properties[property_type] = []
+                cast("list[int]", properties[property_type]).append(cast(int, value))
             else:
                 if property_type in properties:
                     raise MQTTDecodeError(
@@ -432,12 +445,7 @@ class Will(PropertiesMixin):
 
 
 @define(eq=False)
-class Subscription:
-    QOS_MASK = 3
-    NO_LOCAL_FLAG = 4
-    RETAIN_AS_PUBLISHED_FLAG = 8
-    RETAIN_HANDLING_MASK = 48
-
+class Pattern:
     pattern: str
     max_qos: QoS = field(kw_only=True, default=QoS.EXACTLY_ONCE)
     no_local: bool = field(kw_only=True, default=False)
@@ -445,18 +453,28 @@ class Subscription:
     retain_handling: RetainHandling = field(
         kw_only=True, default=RetainHandling.SEND_RETAINED
     )
+    subscription_id: int = field(kw_only=True, default=0)
     group_id: str | None = field(init=False, default=None)
     _parts: tuple[str, ...] = field(init=False, repr=False, eq=False)
+    _prefix: str | None = field(init=False, repr=False, eq=False)
+    _only_hash: bool = field(init=False, repr=False, eq=False, default=False)
 
     def __attrs_post_init__(self) -> None:
-        self._parts = tuple(self.pattern.split("/"))
-        for i, part in enumerate(self._parts):
-            if "+" in part and len(part) != 1:
-                # MQTT-4.7.1-2
-                raise InvalidPattern(
-                    "single-level wildcard ('+') must occupy an entire level of the "
-                    "topic filter"
-                )
+        parts = tuple(self.pattern.split("/"))
+        prefix: str | None = ""
+        n_chop = 0
+        for i, part in enumerate(parts):
+            if "+" in part:
+                if prefix:
+                    prefix += "/"
+
+                if len(part) != 1:
+                    # MQTT-4.7.1-2
+                    raise InvalidPattern(
+                        "single-level wildcard ('+') must occupy an entire level of the "
+                        "topic filter"
+                    )
+
             elif "#" in part:
                 if len(part) != 1:
                     # MQTT-4.7.1-1
@@ -464,16 +482,128 @@ class Subscription:
                         "multi-level wildcard ('#') must occupy an entire level of the "
                         "topic filter"
                     )
-                elif i != len(self._parts) - 1:
+
+                if i != len(parts) - 1:
                     # MQTT-4.7.1-1
                     raise InvalidPattern(
                         "multi-level wildcard ('#') must be the last character in the "
                         "topic filter"
                     )
 
+                if prefix is not None:
+                    self._only_hash = True
+            else:
+                if prefix is not None:
+                    n_chop += 1
+                    if prefix:
+                        prefix += "/"
+
+                    prefix += part
+
+                continue
+
+            if prefix is not None:
+                self._prefix = prefix
+                prefix = None
+
+        if prefix is not None:
+            self._prefix = None  # no wildcard
+
         # Save the group ID for a shared subscription
-        if len(self._parts) > 2 and self._parts[0] == "$share":
-            self.group_id = self._parts[1]
+        if len(parts) > 2 and parts[0] == "$share":
+            self.group_id = parts[1]
+
+        self._parts = parts[n_chop:]
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, Pattern):
+            return self.pattern == other.pattern
+        if isinstance(other, str):
+            return self.pattern == other
+
+        return NotImplemented
+
+    def __hash__(self) -> int:
+        return hash(self.pattern)
+
+    def matches(self, publish: MQTTPublishPacket) -> bool:
+        """
+        Check if a published message matches this subscription.
+
+        :param publish: an MQTT ``PUBLISH`` packet
+        :return: ``True`` if the published message matches this pattern, ``False`` if
+            not
+
+        """
+        # Check that the topic filter matches the message's topic
+        topic_parts = publish.topic.split("/")
+        # Check that the topic filter matches the message's topic.
+
+        # No wildcards
+        if self._prefix is None:
+            return self.pattern == publish.topic
+
+        # Static prefix must be identical
+        if not publish.topic.startswith(self._prefix):
+            return False
+
+        topic = publish.topic[len(self._prefix) :]
+        if self._only_hash:
+            # 'foo/bar/#' matches 'foo/bar' as well as 'foo/bar/baz'
+            # thus the prefix is 'foo/bar' and '._only_slash' is set
+            # so the remainder is either empty or starts with a slash
+            if self._prefix == "":
+                # or the pattern is a single '#', in which case we don't
+                # match '$foo'
+                return topic[0] != "$"
+            else:
+                return topic == "" or topic[0] == "/"
+
+        # Now for the complicated part
+        topic_parts = topic.split("/")
+
+        for i, (pattern_part, topic_part) in enumerate(
+            zip_longest(self._parts, topic_parts)
+        ):
+            if i or not topic_part.startswith("$"):
+                if pattern_part == "#":
+                    # MQTT-4.7.2-1
+                    return True
+                elif pattern_part == "+" and topic_part is not None:
+                    # MQTT-4.7.2-1
+                    continue
+
+            if topic_part != pattern_part:
+                return False
+
+        return True
+
+
+def _str2pat(pat: Pattern | str) -> Pattern:
+    if isinstance(pat, str):
+        return Pattern(pat)
+    return pat
+
+
+@define(eq=False)
+class Subscription:
+    QOS_MASK = 3
+    NO_LOCAL_FLAG = 4
+    RETAIN_AS_PUBLISHED_FLAG = 8
+    RETAIN_HANDLING_MASK = 48
+
+    pattern: Pattern = field(converter=_str2pat)
+    max_qos: QoS = field(kw_only=True, default=QoS.EXACTLY_ONCE)
+    no_local: bool = field(kw_only=True, default=False)
+    retain_as_published: bool = field(kw_only=True, default=True)
+    retain_handling: RetainHandling = field(
+        kw_only=True, default=RetainHandling.SEND_RETAINED
+    )
+    subscription_id: int = field(kw_only=True, default=0)
+
+    def __attrs_post_init__(self) -> None:
+        if isinstance(self.pattern, str):
+            self.pattern = Pattern(self.pattern)
 
     def __eq__(self, other: object) -> bool:
         if isinstance(other, Subscription):
@@ -484,6 +614,10 @@ class Subscription:
     def __hash__(self) -> int:
         return hash(self.pattern)
 
+    @property
+    def group_id(self) -> str | None:
+        return self.pattern.group_id
+
     @classmethod
     def decode(cls, data: memoryview) -> tuple[memoryview, Subscription]:
         data, pattern = decode_utf8(data)
@@ -493,16 +627,18 @@ class Subscription:
         retain_as_published = bool(options & cls.RETAIN_AS_PUBLISHED_FLAG)
         retain_handling = RetainHandling.get((options & cls.RETAIN_HANDLING_MASK) >> 4)
         return data, Subscription(
-            pattern=pattern,
+            pattern=Pattern(pattern),
             max_qos=qos,
             no_local=no_local,
             retain_as_published=retain_as_published,
             retain_handling=retain_handling,
         )
 
-    def encode(self, buffer: bytearray) -> None:
-        encode_utf8(self.pattern, buffer)
-        options = self.max_qos | self.retain_handling << 4
+    def encode(self, buffer: bytearray, max_qos: QoS | None = None) -> None:
+        encode_utf8(self.pattern.pattern, buffer)
+        options = (
+            max_qos if max_qos is not None else self.max_qos
+        ) | self.retain_handling << 4
         if self.no_local:
             options |= self.NO_LOCAL_FLAG
 
@@ -520,28 +656,7 @@ class Subscription:
             not
 
         """
-        # Don't match if the message's QoS is higher than the accepted maximum in this
-        # subscription
-        if publish.qos > self.max_qos:
-            return False
-
-        # Check that the topic filter matches the message's topic
-        topic_parts = publish.topic.split("/")
-        for i, (pattern_part, topic_part) in enumerate(
-            zip_longest(self._parts, topic_parts)
-        ):
-            if i or not topic_part.startswith("$"):
-                if pattern_part == "#":
-                    # MQTT-4.7.2-1
-                    return True
-                elif pattern_part == "+" and topic_part is not None:
-                    # MQTT-4.7.2-1
-                    continue
-
-            if topic_part != pattern_part:
-                return False
-
-        return True
+        return self.pattern.matches(publish)
 
 
 class MQTTPacket(metaclass=ABCMeta):
@@ -1152,6 +1267,7 @@ class MQTTSubscribePacket(MQTTPacket, PropertiesMixin):
 
     packet_id: int
     subscriptions: Sequence[Subscription]
+    max_qos: QoS | None = field(init=True, default=None)
 
     def __attrs_post_init__(self) -> None:
         if not self.subscriptions:
@@ -1169,6 +1285,12 @@ class MQTTSubscribePacket(MQTTPacket, PropertiesMixin):
         subscriptions: list[Subscription] = []
         while data:
             data, subscription = Subscription.decode(data)
+            subscr_id = cast(
+                "list[int] | None", properties.get(PropertyType.SUBSCRIPTION_IDENTIFIER)
+            )
+            if subscr_id:
+                subscription.subscription_id = subscr_id[0]
+
             subscriptions.append(subscription)
 
         return data, MQTTSubscribePacket(
@@ -1187,7 +1309,7 @@ class MQTTSubscribePacket(MQTTPacket, PropertiesMixin):
 
         # Encode the payload
         for subscription in self.subscriptions:
-            subscription.encode(internal_buffer)
+            subscription.encode(internal_buffer, max_qos=self.max_qos)
 
         self.encode_fixed_header(self.expected_reserved_bits, internal_buffer, buffer)
 
@@ -1270,7 +1392,7 @@ class MQTTUnsubscribePacket(MQTTPacket, PropertiesMixin):
     allowed_property_types = frozenset([PropertyType.USER_PROPERTY])
 
     packet_id: int
-    patterns: Sequence[str]
+    patterns: Sequence[Pattern]
 
     def __attrs_post_init__(self) -> None:
         if not self.patterns:
@@ -1287,10 +1409,10 @@ class MQTTUnsubscribePacket(MQTTPacket, PropertiesMixin):
         data, properties, user_properties = cls.decode_properties(data)
 
         # Decode the payload
-        patterns: list[str] = []
+        patterns: list[Pattern] = []
         while data:
             data, pattern = decode_utf8(data)
-            patterns.append(pattern)
+            patterns.append(Pattern(pattern))
 
         return data, MQTTUnsubscribePacket(
             packet_id=packet_id,
@@ -1308,7 +1430,7 @@ class MQTTUnsubscribePacket(MQTTPacket, PropertiesMixin):
 
         # Encode the payload
         for pattern in self.patterns:
-            encode_utf8(pattern, internal_buffer)
+            encode_utf8(pattern.pattern, internal_buffer)
 
         # Encode the fixed header
         self.encode_fixed_header(self.expected_reserved_bits, internal_buffer, buffer)
