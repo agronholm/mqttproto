@@ -314,6 +314,8 @@ class AsyncMQTTClient:
                 await self._run_operation(operation)
 
                 await self._stream.aclose()
+            finally:
+                task_group.cancel_scope.cancel()
 
     async def _manage_connection(
         self,

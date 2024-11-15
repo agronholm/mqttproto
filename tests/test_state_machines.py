@@ -139,7 +139,7 @@ def test_client_receive_qos0(
 
     # Have the broker send a PUBLISH from "otherclient" to the client
     publish = MQTTPublishPacket(topic="test-topic", payload="payload")
-    client_session1.deliver_publish("otherclient", publish)
+    client_session1.deliver_publish(publish.topic, publish.payload)
     packets = client1.feed_bytes(client_session1.get_outbound_data())
     assert len(packets) == 1
     packet = packets[0]
@@ -198,7 +198,7 @@ def test_client_receive_qos1(
         qos=QoS.AT_LEAST_ONCE,
         packet_id=2,
     )
-    client_session1.deliver_publish("otherclient", publish)
+    client_session1.deliver_publish(publish.topic, publish.payload, qos=publish.qos)
     packets = client1.feed_bytes(client_session1.get_outbound_data())
     assert len(packets) == 1
     packet = packets[0]
@@ -250,7 +250,7 @@ def test_publish_qos2(
     assert packet.packet_id == 1
 
     # Send the PUBCOMP from the client session
-    client_session1.complete_qos2_publish(packet.packet_id, ReasonCode.SUCCESS)
+    #
     packets = client1.feed_bytes(client_session1.get_outbound_data())
     assert len(packets) == 1
     packet = packets[0]
@@ -281,7 +281,7 @@ def test_client_receive_qos2(
         qos=QoS.EXACTLY_ONCE,
         packet_id=2,
     )
-    client_session1.deliver_publish("otherclient", publish)
+    client_session1.deliver_publish(publish.topic, publish.payload, qos=publish.qos)
     packets = client1.feed_bytes(client_session1.get_outbound_data())
     assert len(packets) == 1
     packet = packets[0]

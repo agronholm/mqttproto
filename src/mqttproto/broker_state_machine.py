@@ -225,7 +225,7 @@ class MQTTBrokerClientStateMachine(BaseMQTTClientStateMachine):
             qos=qos,
             retain=retain,
             packet_id=packet_id,
-            user_properties=user_properties,
+            user_properties=user_properties or {},
         )
         packet.encode(self._out_buffer)
         if packet.packet_id is not None:

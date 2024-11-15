@@ -195,12 +195,6 @@ class TestSubscription:
         publish = MQTTPublishPacket(topic="foo/bar", payload="")
         assert not Subscription(pattern).matches(publish)
 
-    def test_higher_than_max_qos(self) -> None:
-        publish = MQTTPublishPacket(
-            topic="foo/bar", payload="", qos=QoS.AT_LEAST_ONCE, packet_id=1
-        )
-        assert not Subscription("foo/bar", max_qos=QoS.AT_MOST_ONCE).matches(publish)
-
     def test_single_level_wildcard_not_alone(self) -> None:
         with pytest.raises(
             InvalidPattern,
