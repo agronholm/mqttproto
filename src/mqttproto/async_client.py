@@ -6,7 +6,7 @@ from collections.abc import AsyncGenerator, Container
 from contextlib import AsyncExitStack, ExitStack, asynccontextmanager
 from ssl import SSLContext, SSLError
 from types import TracebackType
-from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar, cast
+from typing import TYPE_CHECKING, Any, Generic, TypeVar, cast
 
 import stamina
 from anyio import (
@@ -42,6 +42,7 @@ from ._types import (
     MQTTPublishPacket,
     MQTTSubscribeAckPacket,
     MQTTUnsubscribeAckPacket,
+    Pattern,
     PropertyType,
     QoS,
     ReasonCode,
@@ -51,13 +52,16 @@ from ._types import (
 )
 from .client_state_machine import MQTTClientStateMachine
 
-if sys.version_info >= (3, 11):
-    from typing import Self
-else:
-    from typing_extensions import Self
-
 if TYPE_CHECKING:
+    from contextlib import AbstractAsyncContextManager
+    from typing import Generic, Literal
+
     from httpx_ws import AsyncWebSocketSession
+
+    if sys.version_info >= (3, 11):
+        from typing import Self
+    else:
+        from typing_extensions import Self
 
 logger = logging.getLogger(__name__)
 
@@ -273,16 +277,18 @@ class AsyncMQTTClient:
     _closed: bool = field(init=False, default=False)
     _state_machine: MQTTClientStateMachine = field(init=False)
     _subscribe_lock: Lock = field(init=False, factory=Lock)
-    _subscriptions: dict[str, ClientSubscription] = field(init=False, factory=dict)
+    _subscriptions: dict[Pattern, ClientSubscription] = field(init=False, factory=dict)
     _subscription_ids: dict[int, ClientSubscription] = field(init=False, factory=dict)
-    _subscription_no_id: dict[str, ClientSubscription] = field(init=False, factory=dict)
+    _subscription_no_id: dict[Pattern, ClientSubscription] = field(
+        init=False, factory=dict
+    )
     _last_subscr_id: int = field(init=False, default=0)
     _stream: ByteStream = field(init=False)
     _stream_lock: Lock = field(init=False, factory=Lock)
     _pending_connect: MQTTConnectOperation | None = field(init=False, default=None)
     _pending_operations: dict[int, MQTTOperation[Any]] = field(init=False, factory=dict)
-    _ignored_exc_classes: tuple[type[Exception]] = field(init=False, default=tuple)
-    __ctx: Any = field(init=False, default=None)
+    _ignored_exc_classes: tuple[type[Exception]] = field(init=False)
+    __ctx: AbstractAsyncContextManager[Self] = field(init=False)
 
     def __attrs_post_init__(self) -> None:
         if not self.host_or_path:
@@ -311,14 +317,20 @@ class AsyncMQTTClient:
         return self._state_machine.may_subscription_id
 
     async def __aenter__(self) -> Self:
-        self.__ctx = ctx = self._ctx()  # pylint: disable=E1101,W0201
+        ctx: AbstractAsyncContextManager[Self]
+        self.__ctx = ctx = self._ctx()
         return await ctx.__aenter__()
 
-    def __aexit__(self, *tb):
-        return self.__ctx.__aexit__(*tb)
+    def __aexit__(
+        self,
+        a: type[BaseException] | None,
+        b: BaseException | None,
+        c: TracebackType | None,
+    ) -> Any:
+        return self.__ctx.__aexit__(a, b, c)
 
     @asynccontextmanager
-    async def _ctx(self) -> Self:
+    async def _ctx(self) -> AsyncGenerator[Self]:
         async with create_task_group() as task_group:
             await task_group.start(self._manage_connection)
             try:
@@ -496,7 +508,7 @@ class AsyncMQTTClient:
             if data := self._state_machine.get_outbound_data():
                 try:
                     await self._stream.send(data)
-                except self._ignored_exc.classes as exc:
+                except self._ignored_exc_classes as exc:
                     logger.debug("Skip bytes to transport stream: %r: %r", data, exc)
                 else:
                     logger.debug("Sent bytes to transport stream: %r", data)
@@ -626,7 +638,7 @@ class AsyncMQTTClient:
         async def unsubscribe() -> None:
             # Send an unsubscribe request if any of my subscriptions are unused
             async with self._subscribe_lock:
-                patterns: list[str] = []
+                patterns: list[Pattern] = []
                 for subscr in subscription.subscriptions:
                     subscr.users.discard(subscription)
                     if not subscr.users:
@@ -655,7 +667,8 @@ class AsyncMQTTClient:
             to_subscribe: list[ClientSubscription] = []
 
             async with self._subscribe_lock:
-                for pattern in patterns:
+                for pattern_str in patterns:
+                    pattern = Pattern(pattern_str)
                     if subscr := self._subscriptions.get(pattern):
                         if subscr.no_local != no_local:
                             raise ValueError(

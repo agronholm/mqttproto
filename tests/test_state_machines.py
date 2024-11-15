@@ -11,6 +11,7 @@ from mqttproto import (
     MQTTPublishPacket,
     MQTTPublishReceivePacket,
     MQTTPublishReleasePacket,
+    Pattern,
     PropertyType,
     QoS,
     ReasonCode,
@@ -71,11 +72,11 @@ def connected_client(
 
 
 def test_subscribe_unsubscribe(connected_client: MQTTClientStateMachine) -> None:
-    subscriptions = [Subscription("foo/bar"), Subscription("foo/baz")]
+    subscriptions = [Subscription(Pattern("foo/bar")), Subscription(Pattern("foo/baz"))]
     assert connected_client.subscribe(subscriptions) == 1
 
-    assert connected_client.unsubscribe(["foo/bar"]) == 2
-    assert connected_client.unsubscribe(["foo/baz"]) == 3
+    assert connected_client.unsubscribe([Pattern("foo/bar")]) == 2
+    assert connected_client.unsubscribe([Pattern("foo/baz")]) == 3
 
 
 def test_client_publish_qos0(
@@ -121,7 +122,7 @@ def test_client_receive_qos0(
     client1, client_session1 = client_session_pairs[0]
 
     # Subscribe to test-topic
-    packet_id = client1.subscribe([Subscription("test-topic")])
+    packet_id = client1.subscribe([Subscription(Pattern("test-topic"))])
     assert packet_id == 1
     client_session1.feed_bytes(client1.get_outbound_data())
     client_session1.acknowledge_subscribe(packet_id, [ReasonCode.SUCCESS])
@@ -175,7 +176,7 @@ def test_client_receive_qos1(
     client1, client_session1 = client_session_pairs[0]
 
     # Subscribe to test-topic
-    packet_id = client1.subscribe([Subscription("test-topic")])
+    packet_id = client1.subscribe([Subscription(Pattern("test-topic"))])
     assert packet_id == 1
     client_session1.feed_bytes(client1.get_outbound_data())
     client_session1.acknowledge_subscribe(packet_id, [ReasonCode.SUCCESS])
@@ -258,7 +259,7 @@ def test_client_receive_qos2(
     client1, client_session1 = client_session_pairs[0]
 
     # Subscribe to test-topic
-    packet_id = client1.subscribe([Subscription("test-topic")])
+    packet_id = client1.subscribe([Subscription(Pattern("test-topic"))])
     assert packet_id == 1
     client_session1.feed_bytes(client1.get_outbound_data())
     client_session1.acknowledge_subscribe(packet_id, [ReasonCode.SUCCESS])

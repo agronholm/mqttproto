@@ -21,6 +21,7 @@ from ._types import (
     MQTTSubscribePacket,
     MQTTUnsubscribeAckPacket,
     MQTTUnsubscribePacket,
+    Pattern,
     PropertyType,
     QoS,
     ReasonCode,
@@ -233,7 +234,7 @@ class MQTTClientStateMachine(BaseMQTTClientStateMachine):
         self._add_pending_packet(packet)
         return packet.packet_id
 
-    def unsubscribe(self, patterns: Sequence[str]) -> int | None:
+    def unsubscribe(self, patterns: Sequence[Pattern]) -> int | None:
         """
         Unsubscribe from one or more topic patterns.
 

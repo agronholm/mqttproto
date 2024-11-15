@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from collections.abc import Collection, Sequence
-from typing import TypeVar
+from typing import TypeVar, cast
 
+from attr.validators import instance_of
 from attrs import define, field
 
 from ._base_client_state_machine import BaseMQTTClientStateMachine, MQTTClientState
@@ -69,27 +70,27 @@ class MQTTBrokerStateMachine:
 
     def subscribe_session_to(
         self, session: MQTTBrokerClientStateMachine, subscription: Subscription
-    ):
+    ) -> None:
         session.subscribed_to(subscription.pattern)
         dest = self.shared_subscriptions.setdefault(subscription.pattern, dict())
         dest[session.client_id] = subscription
 
     def unsubscribe_session_from(
-        self, session: MQTTBrokerClientStateMachine, pattern: Pattern
+        self, session: MQTTBrokerClientStateMachine, pattern: Pattern | str
     ) -> bool:
         """
         Unsubscribe a client from a pattern.
 
         Return True if the subscription existed.
         """
-        session.subscribed_to(pattern)
-        dest = self.shared_subscriptions.get(pattern)
+        session.unsubscribed_from(pattern)
+        dest = self.shared_subscriptions.get(cast(Pattern, pattern))
         if dest is None:
             return False
         if not dest.pop(session.client_id, None):
             return False
         if not dest:
-            del self.shared_subscriptions[pattern]
+            del self.shared_subscriptions[cast(Pattern, pattern)]
         return True
 
     def acknowledge_connect(
@@ -144,7 +145,9 @@ class MQTTBrokerStateMachine:
             if pattern.matches(packet):
                 for client_id, subscr in clients.items():
                     client = self.client_state_machines.get(client_id)
-                    if not subscr.no_local or source_client_id != client_id:
+                    if client and (
+                        not subscr.no_local or source_client_id != client_id
+                    ):
                         client.deliver_publish(
                             topic=packet.topic,
                             payload=packet.payload,
@@ -161,7 +164,7 @@ class MQTTBrokerStateMachine:
 class MQTTBrokerClientStateMachine(BaseMQTTClientStateMachine):
     """State machine for the MQTT broker's view of a client session."""
 
-    client_id: str | None = field(init=False, default=None)
+    client_id: str = field(init=False, validator=instance_of(str))
     _username: str | None = field(init=False, default=None)
     _subscriptions: set[Pattern] = field(init=False, factory=set)
 
@@ -170,11 +173,11 @@ class MQTTBrokerClientStateMachine(BaseMQTTClientStateMachine):
         """The username the client authenticated as."""
         return self._username
 
-    def subscribed_to(self, pattern: Pattern):
+    def subscribed_to(self, pattern: Pattern) -> None:
         self._subscriptions.add(pattern)
 
-    def unsubscribed_from(self, pattern: Pattern):
-        self._subscriptions.discard(pattern)
+    def unsubscribed_from(self, pattern: Pattern | str) -> None:
+        self._subscriptions.discard(cast(Pattern, pattern))
 
     def _handle_packet(self, packet: MQTTPacket) -> bool:
         if super()._handle_packet(packet):
@@ -311,7 +314,7 @@ class MQTTBrokerClientStateMachine(BaseMQTTClientStateMachine):
         if len(reason_codes) != len(request.patterns):
             raise MQTTProtocolError(
                 f"mismatch in the number of reason codes in subscription "
-                f"acknowledgement: the request had {len(request.subscriptions)} but "
+                f"acknowledgement: the request had {len(request.patterns)} but "
                 f"{len(reason_codes)} reason codes were given in the acknowledgement"
             )
 

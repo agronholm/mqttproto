@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from os import PathLike
 from ssl import SSLContext
 from typing import Any
+from uuid import uuid4
 
 import anyio
 from anyio import Lock, create_task_group, create_tcp_listener, create_unix_listener
@@ -17,16 +18,15 @@ from anyio.abc import (
 from anyio.streams.tls import TLSListener
 from attrs import define, field
 
-from mqttproto import (
-    MQTTDisconnectPacket,
-    MQTTPublishPacket,
-    MQTTSubscribePacket,
-    MQTTUnsubscribePacket,
-)
 from mqttproto._base_client_state_machine import MQTTClientState
 from mqttproto._types import (
     MQTTConnectPacket,
+    MQTTDisconnectPacket,
     MQTTPacket,
+    MQTTPublishPacket,
+    MQTTSubscribePacket,
+    MQTTUnsubscribePacket,
+    Pattern,
     ReasonCode,
 )
 from mqttproto.broker_state_machine import (
@@ -99,7 +99,7 @@ class MQTTAuthorizer(metaclass=ABCMeta):
     @abstractmethod
     async def authorize_subscribe(
         self,
-        pattern: str,
+        pattern: Pattern,
         client_id: str,
         username: str | None,
         stream: ByteStream,
@@ -167,6 +167,8 @@ class AsyncMQTTBroker:
                     and session.state_machine.state is MQTTClientState.CONNECTED
                 ):
                     added = True
+                    if not session.state_machine.client_id:
+                        session.state_machine.client_id = uuid4().hex
                     self.add_client_session(session)
 
                 await session.flush_outbound_data()
@@ -243,7 +245,7 @@ class AsyncMQTTBroker:
 
         elif isinstance(packet, MQTTUnsubscribePacket):
             if client_state_machine.state is MQTTClientState.CONNECTED:
-                reason_codes: list[ReasonCode] = []
+                reason_codes = []
                 for pattern in packet.patterns:
                     rc = (
                         ReasonCode.SUCCESS
@@ -281,7 +283,7 @@ class AsyncMQTTBroker:
 
     async def _authorize_subscribe(
         self,
-        pattern: str,
+        pattern: Pattern,
         client_state_machine: MQTTBrokerClientStateMachine,
         stream: ByteStream,
     ) -> ReasonCode:
@@ -315,7 +317,9 @@ class AsyncMQTTBroker:
 
         return ReasonCode.SUCCESS
 
-    async def serve(self, *, task_status=anyio.TASK_STATUS_IGNORED) -> None:
+    async def serve(
+        self, *, task_status: anyio.abc.TaskStatus[int] = anyio.TASK_STATUS_IGNORED
+    ) -> None:
         listener: Listener[Any]
         if isinstance(self.bind_address, (str, bytes, PathLike)):
             listener = await create_unix_listener(self.bind_address)

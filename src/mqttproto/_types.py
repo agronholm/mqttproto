@@ -579,6 +579,12 @@ class Pattern:
         return True
 
 
+def _str2pat(pat: Pattern | str) -> Pattern:
+    if isinstance(pat, str):
+        return Pattern(pat)
+    return pat
+
+
 @define(eq=False)
 class Subscription:
     QOS_MASK = 3
@@ -586,7 +592,7 @@ class Subscription:
     RETAIN_AS_PUBLISHED_FLAG = 8
     RETAIN_HANDLING_MASK = 48
 
-    pattern: Pattern
+    pattern: Pattern = field(converter=_str2pat)
     max_qos: QoS = field(kw_only=True, default=QoS.EXACTLY_ONCE)
     no_local: bool = field(kw_only=True, default=False)
     retain_as_published: bool = field(kw_only=True, default=True)
@@ -1386,7 +1392,7 @@ class MQTTUnsubscribePacket(MQTTPacket, PropertiesMixin):
     allowed_property_types = frozenset([PropertyType.USER_PROPERTY])
 
     packet_id: int
-    patterns: Sequence[str]
+    patterns: Sequence[Pattern]
 
     def __attrs_post_init__(self) -> None:
         if not self.patterns:
@@ -1403,10 +1409,10 @@ class MQTTUnsubscribePacket(MQTTPacket, PropertiesMixin):
         data, properties, user_properties = cls.decode_properties(data)
 
         # Decode the payload
-        patterns: list[str] = []
+        patterns: list[Pattern] = []
         while data:
             data, pattern = decode_utf8(data)
-            patterns.append(pattern)
+            patterns.append(Pattern(pattern))
 
         return data, MQTTUnsubscribePacket(
             packet_id=packet_id,
@@ -1424,7 +1430,7 @@ class MQTTUnsubscribePacket(MQTTPacket, PropertiesMixin):
 
         # Encode the payload
         for pattern in self.patterns:
-            encode_utf8(pattern, internal_buffer)
+            encode_utf8(pattern.pattern, internal_buffer)
 
         # Encode the fixed header
         self.encode_fixed_header(self.expected_reserved_bits, internal_buffer, buffer)

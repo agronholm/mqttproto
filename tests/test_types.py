@@ -24,6 +24,7 @@ from mqttproto._types import (
     MQTTSubscribePacket,
     MQTTUnsubscribeAckPacket,
     MQTTUnsubscribePacket,
+    Pattern,
     PropertyType,
     PropertyValue,
     QoS,
@@ -188,41 +189,41 @@ class TestSubscription:
     @pytest.mark.parametrize("pattern", ["#", "foo/+", "+/bar", "+/+", "foo/bar/#"])
     def test_topic_matches(self, pattern: str) -> None:
         publish = MQTTPublishPacket(topic="foo/bar", payload="")
-        assert Subscription(pattern).matches(publish)
+        assert Pattern(pattern).matches(publish)
 
     @pytest.mark.parametrize("pattern", ["foo/bar/baz", "foo", "foo/bar/+"])
     def test_topic_no_match(self, pattern: str) -> None:
         publish = MQTTPublishPacket(topic="foo/bar", payload="")
-        assert not Subscription(pattern).matches(publish)
+        assert not Pattern(pattern).matches(publish)
 
     def test_single_level_wildcard_not_alone(self) -> None:
         with pytest.raises(
             InvalidPattern,
             match=r"single-level wildcard \('\+'\) must occupy an entire level of the topic filter",
         ):
-            Subscription("foo/+bar/baz")
+            Pattern("foo/+bar/baz")
 
     def test_multi_level_wildcard_not_alone(self) -> None:
         with pytest.raises(
             InvalidPattern,
             match=r"multi-level wildcard \('\#'\) must occupy an entire level of the topic filter",
         ):
-            Subscription("foo/#bar/baz")
+            Pattern("foo/#bar/baz")
 
     def test_multi_level_wildcard_not_at_end(self) -> None:
         with pytest.raises(
             InvalidPattern,
             match=r"multi-level wildcard \('#'\) must be the last character in the topic filter",
         ):
-            Subscription(pattern="foo/#/baz")
+            Pattern(pattern="foo/#/baz")
 
     @pytest.mark.parametrize("pattern", ["#", "+/foo/bar"])
     def test_sys_topic_wildcard(self, pattern: str) -> None:
         publish = MQTTPublishPacket(topic="$SYS/foo/bar", payload="")
-        assert not Subscription(pattern).matches(publish)
+        assert not Pattern(pattern).matches(publish)
 
     def test_group_id(self) -> None:
-        assert Subscription(pattern="$share/foo/bar").group_id == "foo"
+        assert Pattern(pattern="$share/foo/bar").group_id == "foo"
 
 
 class TestMQTTConnectPacket:
@@ -568,7 +569,7 @@ class TestMQTTSubscribePacket:
     def test_minimal(self) -> None:
         subscriptions = [
             Subscription(
-                pattern="foo",
+                pattern=Pattern("foo"),
                 max_qos=QoS.AT_MOST_ONCE,
                 no_local=False,
                 retain_as_published=True,
@@ -586,14 +587,14 @@ class TestMQTTSubscribePacket:
     def test_full(self) -> None:
         subscriptions = [
             Subscription(
-                pattern="foo",
+                pattern=Pattern("foo"),
                 max_qos=QoS.AT_MOST_ONCE,
                 no_local=False,
                 retain_as_published=True,
                 retain_handling=RetainHandling.SEND_RETAINED,
             ),
             Subscription(
-                pattern="test/+/foo/#",
+                pattern=Pattern("test/+/foo/#"),
                 max_qos=QoS.EXACTLY_ONCE,
                 no_local=True,
                 retain_as_published=False,
@@ -655,7 +656,7 @@ class TestMQTTSubscribeAckPacket:
 
 class TestMQTTUnsubscribePacket:
     def test_minimal(self) -> None:
-        packet = MQTTUnsubscribePacket(packet_id=1, patterns=["foo"])
+        packet = MQTTUnsubscribePacket(packet_id=1, patterns=[Pattern("foo")])
         buffer = bytearray()
         packet.encode(buffer)
 
@@ -667,7 +668,7 @@ class TestMQTTUnsubscribePacket:
         user_properties = {"foo": "bar", "key2": "value2"}
         packet = MQTTUnsubscribePacket(
             packet_id=65535,
-            patterns=["foo", "another/topic/+"],
+            patterns=[Pattern("foo"), Pattern("another/topic/+")],
             user_properties=user_properties,
         )
         buffer = bytearray()

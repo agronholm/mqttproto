@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING, cast
 
 import pytest
 from anyio import Event, create_task_group
@@ -10,21 +11,38 @@ from mqttproto import MQTTPublishPacket, QoS
 from mqttproto.async_broker import AsyncMQTTBroker
 from mqttproto.async_client import AsyncMQTTClient
 
-if sys.version_info < (3, 11):
-    pass
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+    from contextlib import AbstractAsyncContextManager
+    from types import TracebackType
+    from typing import Any
+
+    import anyio
+
+    if sys.version_info < (3, 11):
+        from typing_extensions import Never, Self
+    else:
+        from typing import Never, Self
 
 pytestmark = [pytest.mark.anyio, pytest.mark.network]
 
 
 class BrokerTest:
-    async def __aenter__(self):
+    __ctx: AbstractAsyncContextManager[Self]
+
+    async def __aenter__(self) -> Self:
         self.__ctx = ctx = self._ctx()  # pylint: disable=E1101,W0201
         return await ctx.__aenter__()
 
-    def __aexit__(self, *tb):
-        return self.__ctx.__aexit__(*tb)
+    def __aexit__(
+        self,
+        a: type[BaseException] | None,
+        b: BaseException | None,
+        c: TracebackType | None,
+    ) -> Any:
+        return self.__ctx.__aexit__(a, b, c)
 
-    async def run_broker(self, *, task_status):
+    async def run_broker(self, *, task_status: anyio.abc.TaskStatus[int]) -> Never:
         # PORT = 40000 + (os.getpid() + 21) % 10000
         """
         Runs a basic MQTT broker.
@@ -33,8 +51,11 @@ class BrokerTest:
         """
         broker = AsyncMQTTBroker(("127.0.0.1", 0))
         await broker.serve(task_status=task_status)
+        assert False
 
-    async def run_client(self, *, task_status):
+    async def run_client(
+        self, *, task_status: anyio.abc.TaskStatus[AsyncMQTTClient]
+    ) -> Never:
         # PORT = 40000 + (os.getpid() + 21) % 10000
         """
         Runs a basic MQTT broker.
@@ -44,9 +65,10 @@ class BrokerTest:
         async with AsyncMQTTClient(port=self.port) as client:
             task_status.started(client)
             await Event().wait()
+            assert False
 
     @asynccontextmanager
-    async def _ctx(self):
+    async def _ctx(self) -> AsyncIterator[Self]:
         async with create_task_group() as tg:
             self.tg = tg
 
@@ -54,8 +76,8 @@ class BrokerTest:
             yield self
             tg.cancel_scope.cancel()
 
-    async def client(self):
-        return await self.tg.start(self.run_client)
+    async def client(self) -> AsyncMQTTClient:
+        return cast(AsyncMQTTClient, await self.tg.start(self.run_client))
 
 
 @pytest.mark.parametrize(
