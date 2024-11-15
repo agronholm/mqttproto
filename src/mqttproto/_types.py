@@ -1347,7 +1347,7 @@ class MQTTUnsubscribePacket(MQTTPacket, PropertiesMixin):
 
         # Encode the payload
         for pattern in self.patterns:
-            encode_utf8(pattern.pattern, internal_buffer)
+            encode_utf8(pattern, internal_buffer)
 
         # Encode the fixed header
         self.encode_fixed_header(self.expected_reserved_bits, internal_buffer, buffer)
