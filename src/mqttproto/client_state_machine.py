@@ -5,7 +5,7 @@ from collections.abc import Sequence
 from typing import cast
 from uuid import uuid4
 
-from attr.validators import instance_of
+from attr.validators import instance_of, min_len
 from attrs import define, field
 
 from ._base_client_state_machine import BaseMQTTClientStateMachine, MQTTClientState
@@ -33,9 +33,7 @@ from ._types import (
 class MQTTClientStateMachine(BaseMQTTClientStateMachine):
     """State machine for a client's session with an MQTT broker."""
 
-    client_id: str = field(
-        validator=instance_of(str), factory=lambda: f"mqttproto-{uuid4().hex}"
-    )
+    client_id: str = field(validator=[instance_of(str),min_len(1)])
     _ping_pending: bool = field(init=False, default=False)
     _may_retain: bool = field(init=False, default=True)
     _maximum_qos: QoS = field(init=False, default=QoS.EXACTLY_ONCE)
