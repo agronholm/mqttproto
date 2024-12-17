@@ -22,6 +22,7 @@ from ._types import (
     MQTTUnsubscribeAckPacket,
     MQTTUnsubscribePacket,
     PropertyType,
+    PropertyValue,
     QoS,
     ReasonCode,
     Subscription,
@@ -153,6 +154,7 @@ class MQTTClientStateMachine(BaseMQTTClientStateMachine):
         *,
         qos: QoS = QoS.AT_MOST_ONCE,
         retain: bool = False,
+        properties: dict[PropertyType, PropertyValue] | None = None,
     ) -> int | None:
         """
         Send a ``PUBLISH`` request.
@@ -171,7 +173,12 @@ class MQTTClientStateMachine(BaseMQTTClientStateMachine):
         self._out_require_state(MQTTClientState.CONNECTED)
         packet_id = self._generate_packet_id() if qos > QoS.AT_MOST_ONCE else None
         packet = MQTTPublishPacket(
-            topic=topic, payload=payload, qos=qos, retain=retain, packet_id=packet_id
+            topic=topic,
+            payload=payload,
+            qos=qos,
+            retain=retain,
+            packet_id=packet_id,
+            properties=properties if properties is not None else {},
         )
         packet.encode(self._out_buffer)
         if packet_id is not None:
