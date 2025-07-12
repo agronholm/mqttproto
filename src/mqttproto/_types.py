@@ -587,6 +587,7 @@ class MQTTConnectPacket(MQTTPacket, PropertiesMixin):
             PropertyType.SESSION_EXPIRY_INTERVAL,
             PropertyType.AUTHENTICATION_METHOD,
             PropertyType.AUTHENTICATION_DATA,
+            PropertyType.REQUEST_RESPONSE_INFORMATION,
             PropertyType.REQUEST_PROBLEM_INFORMATION,
             PropertyType.RECEIVE_MAXIMUM,
             PropertyType.TOPIC_ALIAS_MAXIMUM,
