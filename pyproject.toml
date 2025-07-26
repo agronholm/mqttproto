@@ -75,6 +75,9 @@ extend-select = [
     "UP",           # pyupgrade
     "W",            # pycodestyle warnings
 ]
+ignore = [
+    "B011",         # assert False
+]
 
 [tool.ruff.lint.extend-per-file-ignores]
 "docs/snippets/**.py" = ["T201", "F841"]

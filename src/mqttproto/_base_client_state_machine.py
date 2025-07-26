@@ -131,8 +131,7 @@ class BaseMQTTClientStateMachine:
             else:
                 reason_code = ReasonCode.PACKET_IDENTIFIER_NOT_FOUND
 
-            if reason_code is not ReasonCode.SUCCESS or self._auto_ack_publishes:
-                self.complete_qos2_publish(packet.packet_id, reason_code)
+            self.complete_qos2_publish(packet.packet_id, reason_code)
         elif isinstance(packet, MQTTPublishCompletePacket):
             self._in_require_state(packet, MQTTClientState.CONNECTED)
             publish = self._pop_pending_packet(packet.packet_id, MQTTPublishPacket)
@@ -296,9 +295,8 @@ class BaseMQTTClientStateMachine:
             received_packets.append(packet)
 
         cutoff_offset = len(self._in_buffer) - len(view)
-        view.release()
         if cutoff_offset:
-            del self._in_buffer[:cutoff_offset]
+            self._in_buffer = self._in_buffer[cutoff_offset:]
 
         return received_packets
 

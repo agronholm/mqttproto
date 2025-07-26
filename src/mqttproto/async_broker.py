@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from os import PathLike
 from ssl import SSLContext
 from typing import Any
+from uuid import uuid4
 
 import anyio
 from anyio import Lock, create_task_group, create_tcp_listener, create_unix_listener
@@ -17,14 +18,15 @@ from anyio.abc import (
 from anyio.streams.tls import TLSListener
 from attrs import define, field
 
-from mqttproto import (
-    MQTTDisconnectPacket,
-    MQTTPublishPacket,
-)
 from mqttproto._base_client_state_machine import MQTTClientState
 from mqttproto._types import (
     MQTTConnectPacket,
+    MQTTDisconnectPacket,
     MQTTPacket,
+    MQTTPublishPacket,
+    MQTTSubscribePacket,
+    MQTTUnsubscribePacket,
+    Pattern,
     ReasonCode,
 )
 from mqttproto.broker_state_machine import (
@@ -97,7 +99,7 @@ class MQTTAuthorizer(metaclass=ABCMeta):
     @abstractmethod
     async def authorize_subscribe(
         self,
-        pattern: str,
+        pattern: Pattern,
         client_id: str,
         username: str | None,
         stream: ByteStream,
@@ -153,14 +155,21 @@ class AsyncMQTTBroker:
         """
         async with stream:
             session = AsyncMQTTClientSession(stream=stream)
+            added = False
             async for chunk in stream:
                 for packet in session.state_machine.feed_bytes(chunk):
-                    await self.handle_packet(
-                        packet, session.state_machine, session.stream
-                    )
+                    await self.handle_packet(packet, session, session.stream)
 
                 if session.state_machine.state is MQTTClientState.DISCONNECTED:
                     return
+                elif (
+                    not added
+                    and session.state_machine.state is MQTTClientState.CONNECTED
+                ):
+                    added = True
+                    if not session.state_machine.client_id:
+                        session.state_machine.client_id = uuid4().hex
+                    self.add_client_session(session)
 
                 await session.flush_outbound_data()
 
@@ -168,11 +177,12 @@ class AsyncMQTTBroker:
                 self._state_machine.client_disconnected(
                     session.state_machine.client_id, None
                 )
+            self.remove_client_session(session)
 
     async def handle_packet(
         self,
         packet: MQTTPacket,
-        client_state_machine: MQTTBrokerClientStateMachine,
+        session: AsyncMQTTClientSession,
         stream: ByteStream,
     ) -> None:
         """
@@ -184,6 +194,8 @@ class AsyncMQTTBroker:
         :param stream: the client's transport stream
 
         """
+        client_state_machine = session.state_machine
+
         if isinstance(packet, MQTTPublishPacket):
             reason_code = await self._authorize_publish(
                 packet, client_state_machine, stream
@@ -193,24 +205,61 @@ class AsyncMQTTBroker:
 
             if reason_code is ReasonCode.SUCCESS:
                 async with create_task_group() as tg:
-                    for client_session in [
-                        self._client_sessions[client_id]
-                        for client_id in self._state_machine.publish(
-                            client_state_machine.client_id, packet
-                        )
-                    ]:
-                        tg.start_soon(client_session.flush_outbound_data)
+                    for client_id in self._state_machine.publish(
+                        client_state_machine.client_id, packet
+                    ):
+                        client_session = self._client_sessions.get(client_id)
+                        if client_session:
+                            tg.start_soon(client_session.flush_outbound_data)
         elif isinstance(packet, MQTTConnectPacket):
             reason_code = await self._authorize_connect(packet, stream)
             self._state_machine.acknowledge_connect(
                 client_state_machine, packet, reason_code
             )
-            self._state_machine.add_client_session(client_state_machine)
         elif isinstance(packet, MQTTDisconnectPacket):
             if client_state_machine.state is MQTTClientState.CONNECTED:
                 self._state_machine.client_disconnected(
                     client_state_machine.client_id, packet
                 )
+        elif isinstance(packet, MQTTSubscribePacket):
+            if client_state_machine.state is MQTTClientState.CONNECTED:
+                reason_codes: list[ReasonCode] = []
+                for subscr in packet.subscriptions:
+                    reason_codes.append(
+                        await self._authorize_subscribe(
+                            subscr.pattern, client_state_machine, stream
+                        )
+                    )
+
+                if packet.packet_id is not None:
+                    client_state_machine.acknowledge_subscribe(
+                        packet.packet_id, reason_codes
+                    )
+
+                # Ack queued: we can actually process the subscriptions
+                for subscr, res in zip(packet.subscriptions, reason_codes):
+                    if res <= ReasonCode.GRANTED_QOS_2:
+                        self._state_machine.subscribe_session_to(
+                            client_state_machine, subscr
+                        )
+
+        elif isinstance(packet, MQTTUnsubscribePacket):
+            if client_state_machine.state is MQTTClientState.CONNECTED:
+                reason_codes = []
+                for pattern in packet.patterns:
+                    rc = (
+                        ReasonCode.SUCCESS
+                        if self._state_machine.unsubscribe_session_from(
+                            client_state_machine, pattern
+                        )
+                        else ReasonCode.NO_SUBSCRIPTION_EXISTED
+                    )
+                    reason_codes.append(rc)
+
+                if packet.packet_id is not None:
+                    client_state_machine.acknowledge_unsubscribe(
+                        packet.packet_id, reason_codes
+                    )
 
     def add_client_session(self, session: AsyncMQTTClientSession) -> None:
         self._state_machine.add_client_session(session.state_machine)
@@ -234,7 +283,7 @@ class AsyncMQTTBroker:
 
     async def _authorize_subscribe(
         self,
-        pattern: str,
+        pattern: Pattern,
         client_state_machine: MQTTBrokerClientStateMachine,
         stream: ByteStream,
     ) -> ReasonCode:
@@ -268,10 +317,13 @@ class AsyncMQTTBroker:
 
         return ReasonCode.SUCCESS
 
-    async def serve(self) -> None:
+    async def serve(
+        self, *, task_status: anyio.abc.TaskStatus[int] = anyio.TASK_STATUS_IGNORED
+    ) -> None:
         listener: Listener[Any]
         if isinstance(self.bind_address, (str, bytes, PathLike)):
             listener = await create_unix_listener(self.bind_address)
+            port = -1
         else:
             host, port = self.bind_address  # TODO: this is problematic for IPv6
             listener = await create_tcp_listener(local_host=host, local_port=port)
@@ -283,6 +335,10 @@ class AsyncMQTTBroker:
             logger.info(
                 "Broker listening on %s", listener.extra(SocketAttribute.local_address)
             )
+            if port == 0:
+                port = listener.extra(SocketAttribute.local_port)
+
+            task_status.started(port)
             await listener.serve(self.serve_client)
 
 

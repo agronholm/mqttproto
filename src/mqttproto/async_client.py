@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import logging
 import sys
-from collections.abc import AsyncGenerator, Container, Sequence
+from collections.abc import AsyncGenerator, Container
 from contextlib import AsyncExitStack, ExitStack, asynccontextmanager
 from ssl import SSLContext, SSLError
 from types import TracebackType
-from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, TypeVar, cast
 
 import stamina
 from anyio import (
@@ -14,6 +14,7 @@ from anyio import (
     ClosedResourceError,
     Event,
     Lock,
+    WouldBlock,
     aclose_forcefully,
     connect_tcp,
     connect_unix,
@@ -41,6 +42,7 @@ from ._types import (
     MQTTPublishPacket,
     MQTTSubscribeAckPacket,
     MQTTUnsubscribeAckPacket,
+    Pattern,
     PropertyType,
     QoS,
     ReasonCode,
@@ -50,13 +52,16 @@ from ._types import (
 )
 from .client_state_machine import MQTTClientStateMachine
 
-if sys.version_info >= (3, 11):
-    from typing import Self
-else:
-    from typing_extensions import Self
-
 if TYPE_CHECKING:
+    from contextlib import AbstractAsyncContextManager
+    from typing import Generic, Literal
+
     from httpx_ws import AsyncWebSocketSession
+
+    if sys.version_info >= (3, 11):
+        from typing import Self
+    else:
+        from typing_extensions import Self
 
 logger = logging.getLogger(__name__)
 
@@ -97,14 +102,20 @@ class MQTTWebsocketStream(ByteStream):
 
 
 @define(eq=False)
+class ClientSubscription(Subscription):
+    users: set[AsyncMQTTSubscription] = field(init=False, factory=set)
+
+
+@define(eq=False)
 class AsyncMQTTSubscription:
-    subscriptions: Sequence[Subscription]
+    subscriptions: list[ClientSubscription] = field(init=False, factory=list)
     send_stream: MemoryObjectSendStream[MQTTPublishPacket] = field(
         init=False, repr=False
     )
     _receive_stream: MemoryObjectReceiveStream[MQTTPublishPacket] = field(
         init=False, repr=False
     )
+    subscription_id: int | None = field(init=False, repr=True, default=None)
 
     def __attrs_post_init__(self) -> None:
         self.send_stream, self._receive_stream = create_memory_object_stream[
@@ -131,7 +142,10 @@ class AsyncMQTTSubscription:
         return None
 
     def matches(self, publish: MQTTPublishPacket) -> bool:
-        return any(sub.matches(publish) for sub in self.subscriptions)
+        return any(
+            not sub.subscription_id and sub.matches(publish)
+            for sub in self.subscriptions
+        )
 
 
 @define(eq=False)
@@ -262,11 +276,19 @@ class AsyncMQTTClient:
     _exit_stack: AsyncExitStack = field(init=False)
     _closed: bool = field(init=False, default=False)
     _state_machine: MQTTClientStateMachine = field(init=False)
-    _subscriptions: list[AsyncMQTTSubscription] = field(init=False, factory=list)
+    _subscribe_lock: Lock = field(init=False, factory=Lock)
+    _subscriptions: dict[Pattern, ClientSubscription] = field(init=False, factory=dict)
+    _subscription_ids: dict[int, ClientSubscription] = field(init=False, factory=dict)
+    _subscription_no_id: dict[Pattern, ClientSubscription] = field(
+        init=False, factory=dict
+    )
+    _last_subscr_id: int = field(init=False, default=0)
     _stream: ByteStream = field(init=False)
     _stream_lock: Lock = field(init=False, factory=Lock)
     _pending_connect: MQTTConnectOperation | None = field(init=False, default=None)
     _pending_operations: dict[int, MQTTOperation[Any]] = field(init=False, factory=dict)
+    _ignored_exc_classes: tuple[type[Exception]] = field(init=False)
+    __ctx: AbstractAsyncContextManager[Self] = field(init=False)
 
     def __attrs_post_init__(self) -> None:
         if not self.host_or_path:
@@ -290,31 +312,40 @@ class AsyncMQTTClient:
     def may_retain(self) -> bool:
         return self._state_machine.may_retain
 
+    @property
+    def may_subscription_id(self) -> bool:
+        return self._state_machine.may_subscription_id
+
     async def __aenter__(self) -> Self:
-        async with AsyncExitStack() as exit_stack:
-            task_group = await exit_stack.enter_async_context(create_task_group())
-            await task_group.start(self._manage_connection)
-            self._exit_stack = exit_stack.pop_all()
+        ctx: AbstractAsyncContextManager[Self]
+        self.__ctx = ctx = self._ctx()
+        return await ctx.__aenter__()
 
-        return self
-
-    async def __aexit__(
+    def __aexit__(
         self,
-        exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: TracebackType | None,
-    ) -> bool | None:
-        self._closed = True
+        a: type[BaseException] | None,
+        b: BaseException | None,
+        c: TracebackType | None,
+    ) -> Any:
+        return self.__ctx.__aexit__(a, b, c)
 
-        if exc_val is None:
-            self._state_machine.disconnect()
-            operation = MQTTDisconnectOperation()
-            await self._run_operation(operation)
-            await self._stream.aclose()
-        else:
-            await self._stream.aclose()
+    @asynccontextmanager
+    async def _ctx(self) -> AsyncGenerator[Self]:
+        async with create_task_group() as task_group:
+            await task_group.start(self._manage_connection)
+            try:
+                yield self
+            except BaseException:
+                await self._stream.aclose()
+                raise
+            else:
+                self._state_machine.disconnect()
+                operation = MQTTDisconnectOperation()
+                await self._run_operation(operation)
 
-        return await self._exit_stack.__aexit__(exc_type, exc_val, exc_tb)
+                await self._stream.aclose()
+            finally:
+                task_group.cancel_scope.cancel()
 
     async def _manage_connection(
         self,
@@ -330,14 +361,15 @@ class AsyncMQTTClient:
                 cm = self._connect_mqtt()
 
             async with AsyncExitStack() as exit_stack:
-                stream, ignored_exc_classes = await exit_stack.enter_async_context(cm)
+                (
+                    stream,
+                    self._ignored_exc_classes,
+                ) = await exit_stack.enter_async_context(cm)
                 self._stream = stream
 
                 # Start handling inbound packets
                 task_group = await exit_stack.enter_async_context(create_task_group())
-                task_group.start_soon(
-                    self._read_inbound_packets, stream, ignored_exc_classes
-                )
+                task_group.start_soon(self._read_inbound_packets, stream)
 
                 # Perform the MQTT handshake (send conn + receive connack)
                 await self._do_handshake()
@@ -363,9 +395,7 @@ class AsyncMQTTClient:
             assert isinstance(client_id, str)
             self.client_id = client_id
 
-    async def _read_inbound_packets(
-        self, stream: ByteReceiveStream, exception_classes: tuple[type[Exception]]
-    ) -> None:
+    async def _read_inbound_packets(self, stream: ByteReceiveStream) -> None:
         # Receives packets from the transport stream and forwards them to interested
         # listeners
         try:
@@ -377,7 +407,7 @@ class AsyncMQTTClient:
                 # Send any received publications to subscriptions that want them
                 for packet in received_packets:
                     await self._handle_packet(packet)
-        except exception_classes:
+        except self._ignored_exc_classes:
             pass
 
     async def _handle_packet(self, packet: MQTTPacket) -> None:
@@ -403,9 +433,24 @@ class AsyncMQTTClient:
 
     async def _deliver_publish(self, packet: MQTTPublishPacket) -> None:
         async with create_task_group() as tg:
-            for sub in self._subscriptions:
-                if sub.matches(packet):
-                    tg.start_soon(sub.send_stream.send, packet)
+
+            def send(subscr: ClientSubscription) -> None:
+                for client in subscr.users:
+                    try:
+                        client.send_stream.send_nowait(packet)
+                    except WouldBlock:
+                        tg.start_soon(client.send_stream.send, packet)
+
+            if subscr_ids := packet.properties.get(
+                PropertyType.SUBSCRIPTION_IDENTIFIER
+            ):
+                for subscr_id in cast("list[int]", subscr_ids):
+                    if sub := self._subscription_ids.get(subscr_id):
+                        send(sub)
+            else:
+                for sub in self._subscription_no_id.values():
+                    if sub.matches(packet):
+                        send(sub)
 
     @asynccontextmanager
     async def _connect_mqtt(
@@ -414,7 +459,8 @@ class AsyncMQTTClient:
         stream: ByteStream
         assert self.host_or_path
         ssl_context = self.ssl if isinstance(self.ssl, SSLContext) else None
-        for attempt in stamina.retry_context(on=(OSError, SSLError)):
+
+        async for attempt in stamina.retry_context(on=(OSError, SSLError)):
             with attempt:
                 if self.transport == "unix":
                     stream = await connect_unix(self.host_or_path)
@@ -449,7 +495,7 @@ class AsyncMQTTClient:
         # MQTT-6.0.0-3
         async with AsyncExitStack() as exit_stack:
             client = await exit_stack.enter_async_context(AsyncClient(verify=self.ssl))
-            for attempt in stamina.retry_context(on=(OSError, SSLError)):
+            async for attempt in stamina.retry_context(on=(OSError, SSLError)):
                 with attempt:
                     session = await exit_stack.enter_async_context(
                         aconnect_ws(uri, client=client, subprotocols=["mqtt"])
@@ -460,8 +506,12 @@ class AsyncMQTTClient:
     async def _flush_outbound_data(self) -> None:
         async with self._stream_lock:
             if data := self._state_machine.get_outbound_data():
-                await self._stream.send(data)
-                logger.debug("Sent bytes to transport stream: %r", data)
+                try:
+                    await self._stream.send(data)
+                except self._ignored_exc_classes as exc:
+                    logger.debug("Skip bytes to transport stream: %r: %r", data, exc)
+                else:
+                    logger.debug("Sent bytes to transport stream: %r", data)
 
     async def _run_operation(self, operation: MQTTOperation[Any]) -> None:
         with ExitStack() as exit_stack:
@@ -498,6 +548,7 @@ class AsyncMQTTClient:
         *,
         qos: QoS = QoS.AT_MOST_ONCE,
         retain: bool = False,
+        user_properties: dict[str, str] | None = None,
     ) -> None:
         """
         Publish a message to the given topic.
@@ -510,7 +561,9 @@ class AsyncMQTTClient:
             before the subscription happened
 
         """
-        packet_id = self._state_machine.publish(topic, payload, qos=qos, retain=retain)
+        packet_id = self._state_machine.publish(
+            topic, payload, qos=qos, retain=retain, user_properties=user_properties
+        )
         if qos is QoS.EXACTLY_ONCE:
             assert packet_id is not None
             await self._run_operation(MQTTQoS2PublishOperation(packet_id))
@@ -519,6 +572,28 @@ class AsyncMQTTClient:
             await self._run_operation(MQTTQoS1PublishOperation(packet_id))
         else:
             await self._run_operation(MQTTQoS0PublishOperation())
+
+    def _new_subscr_id(self) -> int:
+        if not self.may_subscription_id:
+            return 0
+
+        sid = self._last_subscr_id
+        while True:
+            sid += 1
+            # If there are sufficiently large and/or many holes in the list
+            # of assigned subscription IDs, restart from the beginning:
+            # larger IDs take up more space in the message.
+            if (
+                sid in (128, 16384)
+                and len(self._subscription_ids) < self._last_subscr_id / 5
+            ):
+                sid = 1
+
+            if sid in self._subscription_ids:
+                continue
+
+            self._last_subscr_id = sid
+            return sid
 
     @asynccontextmanager
     async def subscribe(
@@ -550,45 +625,109 @@ class AsyncMQTTClient:
         :return: an async context manager that will yield messages matching the
             subscribed topics/patterns
 
+        Subscribing to the same topic pattern multiple times is supported,
+        with these restrictions:
+
+            * the `retain_as_published` and `no_local` flags must match.
+
+            * subsequent subscriptions can't use `RetainHandling.SEND_RETAINED`.
+
+            * When a second subscription raises the subscription's maximum QoS,
+              it's not lowered when the second subscription ends.
         """
         if not patterns:
             raise ValueError("no subscription patterns given")
 
         async def unsubscribe() -> None:
-            # Send an unsubscribe request if any of these patterns are not used by
-            # another subscription in this client
-            if unsubscribe_packet_id := self._state_machine.unsubscribe(patterns):
-                unsubscribe_op = MQTTUnsubscribeOperation(unsubscribe_packet_id)
-                try:
-                    await self._run_operation(unsubscribe_op)
-                except MQTTUnsubscribeFailed as exc:
-                    logger.warning("Unsubscribe failed: %s", exc)
+            # Send an unsubscribe request if any of my subscriptions are unused
+            async with self._subscribe_lock:
+                patterns: list[Pattern] = []
+                for subscr in subscription.subscriptions:
+                    subscr.users.discard(subscription)
+                    if not subscr.users:
+                        patterns.append(subscr.pattern)
+                        del self._subscriptions[subscr.pattern]
+                        if subscr.subscription_id:
+                            del self._subscription_ids[subscr.subscription_id]
+                        else:
+                            del self._subscription_no_id[pattern]
+
+                if patterns:
+                    if unsubscribe_packet_id := self._state_machine.unsubscribe(
+                        patterns
+                    ):
+                        unsubscribe_op = MQTTUnsubscribeOperation(unsubscribe_packet_id)
+                        try:
+                            await self._run_operation(unsubscribe_op)
+                        except MQTTUnsubscribeFailed as exc:
+                            logger.warning("Unsubscribe failed: %s", exc)
 
         async with AsyncExitStack() as exit_stack:
-            subscriptions = [
-                Subscription(
-                    pattern=pattern,
-                    max_qos=maximum_qos,
-                    no_local=no_local,
-                    retain_as_published=retain_as_published,
-                    retain_handling=retain_handling,
-                )
-                for pattern in patterns
-            ]
-
-            # Set up a local subscription that will receive matching publishes as soon
-            # as the broker starts sending them
-            subscription = AsyncMQTTSubscription(subscriptions)
+            subscription = AsyncMQTTSubscription()
             exit_stack.enter_context(subscription)
-            self._subscriptions.append(subscription)
-            exit_stack.callback(self._subscriptions.remove, subscription)
-
-            # Send a subscribe request if any of these patterns hasn't been subscribed
-            # to by this client already
-            if subscribe_packet_id := self._state_machine.subscribe(subscriptions):
-                subscribe_op = MQTTSubscribeOperation(subscribe_packet_id)
-                await self._run_operation(subscribe_op)
-
-            # Set up an unsubscribe operation when the async context manager is exited
             exit_stack.push_async_callback(unsubscribe)
+
+            to_subscribe: list[ClientSubscription] = []
+
+            async with self._subscribe_lock:
+                for pattern_str in patterns:
+                    pattern = Pattern(pattern_str)
+                    if subscr := self._subscriptions.get(pattern):
+                        if subscr.no_local != no_local:
+                            raise ValueError(
+                                f"Conflicting 'no_local' option for {pattern}"
+                            )
+                        if subscr.retain_as_published != retain_as_published:
+                            raise ValueError(
+                                f"Conflicting 'retain_as_published' option for {pattern}"
+                            )
+
+                        if retain_handling == RetainHandling.SEND_RETAINED:
+                            raise ValueError(
+                                f"Already subscribed: cannot get retained messages for {pattern}"
+                            )
+
+                        if subscr.max_qos >= maximum_qos:
+                            # nothing to do
+                            continue
+                    else:
+                        subscr = ClientSubscription(
+                            pattern=pattern,
+                            max_qos=maximum_qos,
+                            no_local=no_local,
+                            retain_as_published=retain_as_published,
+                            retain_handling=retain_handling,
+                            subscription_id=self._new_subscr_id(),
+                        )
+                        self._subscriptions[pattern] = subscr
+                        if subscr.subscription_id:
+                            self._subscription_ids[subscr.subscription_id] = subscr
+                        else:
+                            self._subscription_no_id[pattern] = subscr
+
+                    # link the subscription
+                    subscription.subscriptions.append(subscr)
+                    subscr.users.add(subscription)
+
+                    if subscr.subscription_id:
+                        # every topic has (in fact, needs) its own ID.
+                        subscribe_packet_id = self._state_machine.subscribe(
+                            [subscr], max_qos=maximum_qos
+                        )
+                        subscribe_op = MQTTSubscribeOperation(subscribe_packet_id)
+                        await self._run_operation(subscribe_op)
+                        subscr.max_qos = max(maximum_qos, subscr.max_qos)
+                    else:
+                        to_subscribe.append(subscr)
+
+                if to_subscribe:
+                    # no subscription IDs, so do it all at once
+                    subscribe_packet_id = self._state_machine.subscribe(
+                        to_subscribe, max_qos=maximum_qos
+                    )
+                    subscribe_op = MQTTSubscribeOperation(subscribe_packet_id)
+                    await self._run_operation(subscribe_op)
+                    for subscr in to_subscribe:
+                        subscr.max_qos = max(maximum_qos, subscr.max_qos)
+
             yield subscription
