@@ -56,7 +56,7 @@ class InsufficientData(MQTTDecodeError):
 
 class MQTTUnsupportedPropertyType(MQTTDecodeError):
     """
-    Raised when decoding an MQTT packet and it contains a property of a type not
+    Raised when decoding or encoding an MQTT packet and it contains a property of a type not
     supported by that packet type.
     """
 

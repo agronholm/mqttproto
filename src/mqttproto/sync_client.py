@@ -10,7 +10,14 @@ from typing import Any, Literal
 from anyio.from_thread import BlockingPortal, BlockingPortalProvider
 from attrs import define
 
-from ._types import MQTTPublishPacket, QoS, RetainHandling, Will
+from ._types import (
+    MQTTPublishPacket,
+    PropertyType,
+    PropertyValue,
+    QoS,
+    RetainHandling,
+    Will,
+)
 from .async_client import AsyncMQTTClient, AsyncMQTTSubscription
 
 if sys.version_info >= (3, 11):
@@ -104,9 +111,12 @@ class MQTTClient:
         *,
         qos: QoS = QoS.AT_MOST_ONCE,
         retain: bool = False,
+        properties: dict[PropertyType, PropertyValue] | None = None,
     ) -> None:
         return self._portal.call(
-            lambda: self._async_client.publish(topic, payload, qos=qos, retain=retain)
+            lambda: self._async_client.publish(
+                topic, payload, qos=qos, retain=retain, properties=properties
+            )
         )
 
     @contextmanager
