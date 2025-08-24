@@ -255,7 +255,7 @@ class TestMQTTConnectPacket:
             PropertyType.RESPONSE_TOPIC: "res/pon/se",
             PropertyType.CORRELATION_DATA: b"random",
         }
-        will_user_properties = {"test1": "foo", "test2": "bar"}
+        will_user_properties = [("test1", "foo"), ("test1", "bar"), ("test2", "baz")]
         will = Will(
             topic="will_töpic",
             payload=will_payload,
@@ -267,7 +267,7 @@ class TestMQTTConnectPacket:
         properties: dict[PropertyType, PropertyValue] = {
             PropertyType.SESSION_EXPIRY_INTERVAL: 255
         }
-        user_properties = {"foo": "bar", "key2": "value2"}
+        user_properties = [("foo", "bar"), ("foo", "baz"), ("key2", "value2")]
         packet = MQTTConnectPacket(
             client_id="teståäö",
             will=will,
@@ -317,7 +317,7 @@ class TestMQTTConnAckPacket:
             PropertyType.SUBSCRIPTION_IDENTIFIER_AVAILABLE: True,
             PropertyType.SHARED_SUBSCRIPTION_AVAILABLE: True,
         }
-        user_properties = {"foo": "bar", "key2": "value2"}
+        user_properties = [("foo", "bar"), ("foo", "baz"), ("key2", "value2")]
         packet = MQTTConnAckPacket(
             session_present=True,
             reason_code=ReasonCode.UNSPECIFIED_ERROR,
@@ -361,7 +361,7 @@ class TestMQTTPublishPacket:
             PropertyType.SUBSCRIPTION_IDENTIFIER: 268_435_455,
             PropertyType.TOPIC_ALIAS: 65535,
         }
-        user_properties = {"foo": "bar", "key2": "value2"}
+        user_properties = [("foo", "bar"), ("foo", "baz"), ("key2", "value2")]
         packet = MQTTPublishPacket(
             topic="tö/p1/c",
             payload=payload,
@@ -394,7 +394,7 @@ class TestMQTTPublishAckPacket:
         properties: dict[PropertyType, PropertyValue] = {
             PropertyType.REASON_STRING: "Bad data",
         }
-        user_properties = {"foo": "bar", "key2": "value2"}
+        user_properties = [("foo", "bar"), ("foo", "baz"), ("key2", "value2")]
         packet = MQTTPublishAckPacket(
             packet_id=65535,
             reason_code=ReasonCode.UNSPECIFIED_ERROR,
@@ -440,7 +440,7 @@ class TestMQTTPublishReceivePacket:
         properties: dict[PropertyType, PropertyValue] = {
             PropertyType.REASON_STRING: "Bad data",
         }
-        user_properties = {"foo": "bar", "key2": "value2"}
+        user_properties = [("foo", "bar"), ("foo", "baz"), ("key2", "value2")]
         packet = MQTTPublishReceivePacket(
             packet_id=65535,
             reason_code=ReasonCode.UNSPECIFIED_ERROR,
@@ -488,7 +488,7 @@ class TestMQTTPublishReleasePacket:
         properties: dict[PropertyType, PropertyValue] = {
             PropertyType.REASON_STRING: "Bad data",
         }
-        user_properties = {"foo": "bar", "key2": "value2"}
+        user_properties = [("foo", "bar"), ("foo", "baz"), ("key2", "value2")]
         packet = MQTTPublishReleasePacket(
             packet_id=65535,
             reason_code=ReasonCode.PACKET_IDENTIFIER_NOT_FOUND,
@@ -536,7 +536,7 @@ class TestMQTTPublishCompletePacket:
         properties: dict[PropertyType, PropertyValue] = {
             PropertyType.REASON_STRING: "Bad data",
         }
-        user_properties = {"foo": "bar", "key2": "value2"}
+        user_properties = [("foo", "bar"), ("foo", "baz"), ("key2", "value2")]
         packet = MQTTPublishCompletePacket(
             packet_id=65535,
             reason_code=ReasonCode.PACKET_IDENTIFIER_NOT_FOUND,
@@ -609,7 +609,7 @@ class TestMQTTSubscribePacket:
         properties: dict[PropertyType, PropertyValue] = {
             PropertyType.SUBSCRIPTION_IDENTIFIER: 268_435_455,
         }
-        user_properties = {"foo": "bar", "key2": "value2"}
+        user_properties = [("foo", "bar"), ("foo", "baz"), ("key2", "value2")]
         packet = MQTTSubscribePacket(
             packet_id=65535,
             subscriptions=subscriptions,
@@ -638,7 +638,7 @@ class TestMQTTSubscribeAckPacket:
         properties: dict[PropertyType, PropertyValue] = {
             PropertyType.REASON_STRING: "Bad data",
         }
-        user_properties = {"foo": "bar", "key2": "value2"}
+        user_properties = [("foo", "bar"), ("foo", "baz"), ("key2", "value2")]
         packet = MQTTSubscribeAckPacket(
             packet_id=65535,
             reason_codes=[ReasonCode.UNSPECIFIED_ERROR, ReasonCode.GRANTED_QOS_1],
@@ -670,7 +670,7 @@ class TestMQTTUnsubscribePacket:
         assert not leftover_data
 
     def test_full(self) -> None:
-        user_properties = {"foo": "bar", "key2": "value2"}
+        user_properties = [("foo", "bar"), ("foo", "baz"), ("key2", "value2")]
         packet = MQTTUnsubscribePacket(
             packet_id=65535,
             patterns=["foo", "another/topic/+"],
@@ -700,7 +700,7 @@ class TestMQTTUnsubscribeAckPacket:
         properties: dict[PropertyType, PropertyValue] = {
             PropertyType.REASON_STRING: "reason cöde"
         }
-        user_properties = {"foo": "bar", "key2": "value2"}
+        user_properties = [("foo", "bar"), ("foo", "baz"), ("key2", "value2")]
         packet = MQTTUnsubscribeAckPacket(
             packet_id=65535,
             reason_codes=[ReasonCode.SUCCESS, ReasonCode.UNSPECIFIED_ERROR],
@@ -759,7 +759,7 @@ class TestMQTTDisconnectPacket:
             PropertyType.REASON_STRING: "reason cöde",
             PropertyType.SERVER_REFERENCE: "another server",
         }
-        user_properties = {"foo": "bar", "key2": "value2"}
+        user_properties = [("foo", "bar"), ("foo", "baz"), ("key2", "value2")]
         packet = MQTTDisconnectPacket(
             reason_code=ReasonCode.UNSPECIFIED_ERROR,
             properties=properties,
@@ -804,7 +804,7 @@ class TestMQTTAuthPacket:
             PropertyType.AUTHENTICATION_DATA: b"random",
             PropertyType.REASON_STRING: "reason",
         }
-        user_properties = {"foo": "bar", "key2": "value2"}
+        user_properties = [("foo", "bar"), ("foo", "baz"), ("key2", "value2")]
         packet = MQTTAuthPacket(
             reason_code=ReasonCode.REAUTHENTICATE,
             properties=properties,

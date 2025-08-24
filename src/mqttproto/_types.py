@@ -344,7 +344,7 @@ class PropertyType(IntEnum):
 class PropertiesMixin:
     allowed_property_types: ClassVar[frozenset[PropertyType]] = frozenset()
     properties: dict[PropertyType, PropertyValue] = field(repr=False, factory=dict)
-    user_properties: dict[str, str] = field(repr=False, factory=dict)
+    user_properties: list[tuple[str, str]] = field(repr=False, factory=list)
 
     def encode_properties(self, buffer: bytearray) -> None:
         internal_buffer = bytearray()
@@ -352,7 +352,7 @@ class PropertiesMixin:
             encode_variable_integer(identifier, internal_buffer)
             identifier.encoder(value, internal_buffer)
 
-        for key, value in self.user_properties.items():
+        for key, value in self.user_properties:
             encode_variable_integer(PropertyType.USER_PROPERTY, internal_buffer)
             PropertyType.USER_PROPERTY.encoder((key, value), internal_buffer)
 
@@ -362,14 +362,14 @@ class PropertiesMixin:
     @classmethod
     def decode_properties(
         cls, data: memoryview
-    ) -> tuple[memoryview, dict[PropertyType, PropertyValue], dict[str, str]]:
+    ) -> tuple[memoryview, dict[PropertyType, PropertyValue], list[tuple[str, str]]]:
         data, length = decode_variable_integer(data)
         if len(data) < length:
             raise InsufficientData
 
         data, view = data[length:], data[:length]
         properties: dict[PropertyType, PropertyValue] = {}
-        user_properties: dict[str, str] = {}
+        user_properties: list[tuple[str, str]] = []
         while view:
             view, property_num = decode_variable_integer(view)
             property_type = PropertyType.get(property_num)
@@ -379,7 +379,7 @@ class PropertiesMixin:
             view, value = property_type.decoder(view)
             if property_type is PropertyType.USER_PROPERTY:
                 key, value = cast("tuple[str, str]", value)
-                user_properties[key] = value
+                user_properties.append((key, value))
             else:
                 if property_type in properties:
                     raise MQTTDecodeError(
@@ -933,7 +933,7 @@ class MQTTPublishAckPacket(MQTTPacket, PropertiesMixin, ReasonCodeMixin):
         # Decode the variable header
         reason_code = ReasonCode.SUCCESS
         properties: dict[PropertyType, PropertyValue] = {}
-        user_properties: dict[str, str] = {}
+        user_properties: list[tuple[str, str]] = []
 
         data, packet_id = decode_fixed_integer(data, 2)
         if data:
@@ -998,7 +998,7 @@ class MQTTPublishReceivePacket(MQTTPacket, PropertiesMixin, ReasonCodeMixin):
         # Decode the variable header
         reason_code = ReasonCode.SUCCESS
         properties: dict[PropertyType, PropertyValue] = {}
-        user_properties: dict[str, str] = {}
+        user_properties: list[tuple[str, str]] = []
 
         data, packet_id = decode_fixed_integer(data, 2)
         if data:
@@ -1054,7 +1054,7 @@ class MQTTPublishReleasePacket(MQTTPacket, PropertiesMixin, ReasonCodeMixin):
         # Decode the variable header
         reason_code = ReasonCode.SUCCESS
         properties: dict[PropertyType, PropertyValue] = {}
-        user_properties: dict[str, str] = {}
+        user_properties: list[tuple[str, str]] = []
 
         data, packet_id = decode_fixed_integer(data, 2)
         if data:
@@ -1109,7 +1109,7 @@ class MQTTPublishCompletePacket(MQTTPacket, PropertiesMixin, ReasonCodeMixin):
         # Decode the variable header
         reason_code = ReasonCode.SUCCESS
         properties: dict[PropertyType, PropertyValue] = {}
-        user_properties: dict[str, str] = {}
+        user_properties: list[tuple[str, str]] = []
 
         data, packet_id = decode_fixed_integer(data, 2)
         if data:
@@ -1467,7 +1467,7 @@ class MQTTDisconnectPacket(MQTTPacket, PropertiesMixin, ReasonCodeMixin):
         # Decode the variable header
         reason_code = ReasonCode.SUCCESS
         properties: dict[PropertyType, PropertyValue] = {}
-        user_properties: dict[str, str] = {}
+        user_properties: list[tuple[str, str]] = []
 
         if data:
             data, reason_code = cls.decode_reason_code(data)
