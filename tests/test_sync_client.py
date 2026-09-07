@@ -12,20 +12,19 @@ pytestmark = [pytest.mark.network]
 
 @pytest.mark.parametrize("qos", [QoS.AT_MOST_ONCE, QoS.AT_LEAST_ONCE, QoS.EXACTLY_ONCE])
 def test_publish_subscribe(qos: QoS) -> None:
-    with MQTTClient() as client:
-        with client.subscribe("test/+") as messages:
-            client.publish("test/text", "test åäö", qos=qos)
-            client.publish("test/binary", b"\x00\xff\x00\x1f", qos=qos)
-            packets: list[MQTTPublishPacket] = []
-            for packet in messages:
-                packets.append(packet)
-                if len(packets) == 2:
-                    break
+    with MQTTClient() as client, client.subscribe("test/+") as messages:
+        client.publish("test/text", "test åäö", qos=qos)
+        client.publish("test/binary", b"\x00\xff\x00\x1f", qos=qos)
+        packets: list[MQTTPublishPacket] = []
+        for packet in messages:
+            packets.append(packet)
+            if len(packets) == 2:
+                break
 
-            assert packets[0].topic == "test/text"
-            assert packets[0].payload == "test åäö"
-            assert packets[1].topic == "test/binary"
-            assert packets[1].payload == b"\x00\xff\x00\x1f"
+        assert packets[0].topic == "test/text"
+        assert packets[0].payload == "test åäö"
+        assert packets[1].topic == "test/binary"
+        assert packets[1].payload == b"\x00\xff\x00\x1f"
 
 
 if sys.version_info < (3, 11):
