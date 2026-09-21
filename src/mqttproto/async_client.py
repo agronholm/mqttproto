@@ -128,7 +128,6 @@ class AsyncMQTTSubscription:
     ) -> None:
         self._receive_stream.close()
         self.send_stream.close()
-        return None
 
     def matches(self, publish: MQTTPublishPacket) -> bool:
         return any(sub.matches(publish) for sub in self.subscriptions)
