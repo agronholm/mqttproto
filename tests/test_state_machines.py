@@ -24,9 +24,9 @@ from mqttproto.client_state_machine import MQTTClientStateMachine
 
 
 @pytest.fixture
-def client_session_pairs() -> (
-    list[tuple[MQTTClientStateMachine, MQTTBrokerClientStateMachine]]
-):
+def client_session_pairs() -> list[
+    tuple[MQTTClientStateMachine, MQTTBrokerClientStateMachine]
+]:
     client1 = MQTTClientStateMachine(client_id="client-1")
     client2 = MQTTClientStateMachine(client_id="client-2")
 
